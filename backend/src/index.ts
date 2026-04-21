@@ -6,6 +6,7 @@ import auth from './routes/auth.js'
 import requests from './routes/requests.js'
 import users from './routes/users.js'
 import audit from './routes/audit.js'
+import files from './routes/files.js'
 
 const app = new Hono()
 
@@ -21,6 +22,7 @@ app.route('/api/auth', auth)
 app.route('/api/requests', requests)
 app.route('/api/users', users)
 app.route('/api/audit', audit)
+app.route('/api/files', files)
 
 app.onError((err, c) => {
   console.error(err)

@@ -103,6 +103,7 @@ requests.patch('/:id/status', async (c) => {
       poFile: body.poFile,
       transferRef: body.transferRef,
       transferDate: body.transferDate,
+      transferFile: body.transferFile,
       notes: body.notes,
     },
     include: { items: true },

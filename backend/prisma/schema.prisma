@@ -58,6 +58,7 @@ model PurchaseRequest {
   poFile        String?
   transferRef   String?
   transferDate  String?
+  transferFile  String?
   createdBy     String
   createdByName String
   createdAt     DateTime      @default(now())

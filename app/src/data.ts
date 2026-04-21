@@ -40,6 +40,7 @@ export interface PurchaseRequest {
   poFile?: string;
   transferRef?: string;
   transferDate?: string;
+  transferFile?: string;
   notes?: string;
 }
 

@@ -243,20 +243,46 @@ function PageLoader({ loading }: { loading: boolean }) {
 }
 
 // ─── File Upload Field ────────────────────────────────────────────────────────
-function FileUploadField({ label, fileName, onFile }: { label: string; fileName: string; onFile: (name: string) => void }) {
+function FileUploadField({ label, fileName, onFile, onError }: {
+  label: string; fileName: string;
+  onFile: (name: string, url: string) => void;
+  onError?: (msg: string) => void;
+}) {
   const ref = React.useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setUploading(true);
+    try {
+      const result = await api.files.upload(f);
+      onFile(result.name, result.url);
+    } catch (err: any) {
+      onError?.(err.message || 'อัปโหลดไม่สำเร็จ');
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
   return (
     <div className="flex flex-col gap-1">
       {label && <label className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</label>}
-      <div onClick={() => ref.current?.click()}
+      <div onClick={() => !uploading && ref.current?.click()}
         className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 border-dashed cursor-pointer transition-all select-none
           ${fileName ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700' : 'border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-600 bg-white dark:bg-slate-800'}`}>
-        <input ref={ref} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f.name); e.target.value = ''; }} />
-        {fileName ? (
+        <input ref={ref} type="file" className="hidden" onChange={handleChange} />
+        {uploading ? (
+          <>
+            <RefreshCw size={15} className="text-blue-500 shrink-0 animate-spin" />
+            <span className="text-sm text-blue-600 dark:text-blue-400">กำลังอัปโหลด...</span>
+          </>
+        ) : fileName ? (
           <>
             <FileCheck size={15} className="text-blue-500 shrink-0" />
             <span className="text-sm text-blue-700 dark:text-blue-300 truncate flex-1">{fileName}</span>
-            <button type="button" onClick={e => { e.stopPropagation(); onFile(''); }}
+            <button type="button" onClick={e => { e.stopPropagation(); onFile('', ''); }}
               className="text-slate-400 hover:text-red-500 transition-colors shrink-0"><X size={14} /></button>
           </>
         ) : (
@@ -267,6 +293,24 @@ function FileUploadField({ label, fileName, onFile }: { label: string; fileName:
         )}
       </div>
     </div>
+  );
+}
+
+// ─── File View Button ────────────────────────────────────────────────────────
+function FileButton({ label, url }: { label: string; url: string }) {
+  const [loading, setLoading] = useState(false);
+  const canView = url.startsWith('/api/files/');
+  const open = async () => {
+    if (!canView) return;
+    setLoading(true);
+    try { await api.files.open(url); } catch { /* ignore */ } finally { setLoading(false); }
+  };
+  return (
+    <button onClick={open} disabled={!canView || loading}
+      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+      {loading ? <RefreshCw size={12} className="animate-spin" /> : <FileCheck size={12} />}
+      {label}
+    </button>
   );
 }
 
@@ -977,16 +1021,18 @@ function IssuePRPOPage({ requests, onIssue, toast }: { requests: PurchaseRequest
   const avail = requests.filter(r => r.status === 'pending');
   const [selId, setSelId] = useState('');
   const [prFile, setPrFile] = useState('');
+  const [prFileUrl, setPrFileUrl] = useState('');
   const [poFile, setPoFile] = useState('');
+  const [poFileUrl, setPoFileUrl] = useState('');
   const [notes, setNotes] = useState('');
   const sel = avail.find(r => r.id === selId);
 
   const handle = () => {
     if (!selId) return toast('กรุณาเลือกใบขอซื้อ', 'error');
-    if (!prFile) return toast('กรุณาแนบเอกสาร PR', 'error');
-    if (!poFile) return toast('กรุณาแนบเอกสาร PO', 'error');
-    onIssue(selId, prFile, poFile, notes);
-    setSelId(''); setPrFile(''); setPoFile(''); setNotes('');
+    if (!prFileUrl) return toast('กรุณาแนบเอกสาร PR', 'error');
+    if (!poFileUrl) return toast('กรุณาแนบเอกสาร PO', 'error');
+    onIssue(selId, prFileUrl, poFileUrl, notes);
+    setSelId(''); setPrFile(''); setPrFileUrl(''); setPoFile(''); setPoFileUrl(''); setNotes('');
   };
 
   return (
@@ -1007,8 +1053,8 @@ function IssuePRPOPage({ requests, onIssue, toast }: { requests: PurchaseRequest
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FileUploadField label="เอกสาร PR *" fileName={prFile} onFile={setPrFile} />
-            <FileUploadField label="เอกสาร PO *" fileName={poFile} onFile={setPoFile} />
+            <FileUploadField label="เอกสาร PR *" fileName={prFile} onFile={(name, url) => { setPrFile(name); setPrFileUrl(url); }} onError={msg => toast(msg, 'error')} />
+            <FileUploadField label="เอกสาร PO *" fileName={poFile} onFile={(name, url) => { setPoFile(name); setPoFileUrl(url); }} onError={msg => toast(msg, 'error')} />
           </div>
           <Textarea label="หมายเหตุ" value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="หมายเหตุเพิ่มเติม..." />
 
@@ -1077,19 +1123,20 @@ function PaymentListPage({ requests, onRecord }: { requests: PurchaseRequest[]; 
   );
 }
 
-function RecordPaymentPage({ requests, onTransfer, toast }: { requests: PurchaseRequest[]; onTransfer: (id: string, ref: string, date: string, notes: string) => void; toast: (m: string, t?: Toast['type']) => void }) {
+function RecordPaymentPage({ requests, onTransfer, toast }: { requests: PurchaseRequest[]; onTransfer: (id: string, ref: string, date: string, notes: string, fileUrl: string) => void; toast: (m: string, t?: Toast['type']) => void }) {
   const avail = requests.filter(r => r.status === 'accounting');
   const [selId, setSelId] = useState('');
   const [ref, setRef] = useState('');
   const [date, setDate] = useState(today());
   const [notes, setNotes] = useState('');
-  const [file, setFile] = useState('');
+  const [slipName, setSlipName] = useState('');
+  const [slipUrl, setSlipUrl] = useState('');
 
   const handle = () => {
     if (!selId) return toast('กรุณาเลือกรายการ', 'error');
     if (!ref.trim()) return toast('กรุณากรอกเลขอ้างอิงการโอน', 'error');
-    onTransfer(selId, ref, date, notes);
-    setSelId(''); setRef(''); setNotes(''); setFile('');
+    onTransfer(selId, ref, date, notes, slipUrl);
+    setSelId(''); setRef(''); setNotes(''); setSlipName(''); setSlipUrl('');
   };
 
   return (
@@ -1103,14 +1150,7 @@ function RecordPaymentPage({ requests, onTransfer, toast }: { requests: Purchase
           <Input label="เลขอ้างอิงการโอน *" value={ref} onChange={e => setRef(e.target.value)} placeholder="เช่น TRF-010" />
           <Input label="วันที่โอน *" type="date" value={date} onChange={e => setDate(e.target.value)} />
           <Textarea label="หมายเหตุ" value={notes} onChange={e => setNotes(e.target.value)} rows={2} />
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">แนบสลิปการโอน</label>
-            <label className="flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-xs text-slate-400 hover:border-blue-400 hover:text-blue-600 cursor-pointer transition-colors w-fit">
-              <Upload size={13} />เลือกไฟล์สลิป
-              <input type="file" className="hidden" onChange={e => setFile(e.target.files?.[0]?.name || '')} />
-            </label>
-            {file && <span className="text-xs text-slate-400">{file}</span>}
-          </div>
+          <FileUploadField label="แนบสลิปการโอน" fileName={slipName} onFile={(name, url) => { setSlipName(name); setSlipUrl(url); }} onError={msg => toast(msg, 'error')} />
           <button onClick={handle} className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
             <Banknote size={15} />บันทึกการโอนเงิน
           </button>
@@ -1628,6 +1668,16 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
             <p className="text-slate-600 dark:text-slate-400 text-xs">{req.notes}</p>
           </div>
         )}
+        {(req.prFile || req.poFile || req.transferFile) && (
+          <div>
+            <div className="text-[11px] text-slate-400 font-medium mb-2">ไฟล์เอกสารแนบ</div>
+            <div className="flex flex-wrap gap-2">
+              {req.prFile && <FileButton label="เอกสาร PR" url={req.prFile} />}
+              {req.poFile && <FileButton label="เอกสาร PO" url={req.poFile} />}
+              {req.transferFile && <FileButton label="สลิปโอนเงิน" url={req.transferFile} />}
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -1664,11 +1714,15 @@ export default function App() {
 
   // Inline modal form fields
   const [prFile, setPrFile] = useState('');
+  const [prFileUrl, setPrFileUrl] = useState('');
   const [poFile, setPoFile] = useState('');
+  const [poFileUrl, setPoFileUrl] = useState('');
   const [prNotes, setPrNotes] = useState('');
   const [transferRef, setTransferRef] = useState('');
   const [transferDate, setTransferDate] = useState(today());
   const [transferNotes, setTransferNotes] = useState('');
+  const [transferSlip, setTransferSlip] = useState('');
+  const [transferSlipUrl, setTransferSlipUrl] = useState('');
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
@@ -1772,13 +1826,13 @@ export default function App() {
     } catch (err: any) { toast(err.message || 'เกิดข้อผิดพลาด', 'error'); }
   };
 
-  const handleTransfer = async (id: string, ref: string, date: string, notes: string) => {
+  const handleTransfer = async (id: string, ref: string, date: string, notes: string, fileUrl?: string) => {
     try {
-      const updated = await api.requests.updateStatus(id, { status: 'transferred', transferRef: ref, transferDate: date, notes });
+      const updated = await api.requests.updateStatus(id, { status: 'transferred', transferRef: ref, transferDate: date, notes, ...(fileUrl ? { transferFile: fileUrl } : {}) });
       setRequests(r => r.map(x => x.id === id ? updated : x));
       addAudit('UPDATE', 'Payment', `บันทึกการโอนเงิน ${ref}`);
       toast(`บันทึกการโอนเงิน ${ref} สำเร็จ`);
-      setRecordPayReq(null); setTransferRef(''); setTransferNotes('');
+      setRecordPayReq(null); setTransferRef(''); setTransferNotes(''); setTransferSlip(''); setTransferSlipUrl('');
     } catch (err: any) { toast(err.message || 'เกิดข้อผิดพลาด', 'error'); }
   };
 
@@ -1822,7 +1876,7 @@ export default function App() {
       case 'dashboard': return <DashboardPage requests={requests} />;
       case 'my-requests': return <MyRequestsPage requests={requests} user={currentUser} onView={setViewReq} />;
       case 'create-request': return <CreateRequestPage user={currentUser} onSave={handleCreateRequest} toast={toast} />;
-      case 'pending-approval': return <PendingApprovalPage requests={requests} onIssuePRPO={r => { setIssuePRReq(r); setPrFile(''); setPoFile(''); }} onReject={setRejectReq} />;
+      case 'pending-approval': return <PendingApprovalPage requests={requests} onIssuePRPO={r => { setIssuePRReq(r); setPrFile(''); setPrFileUrl(''); setPoFile(''); setPoFileUrl(''); }} onReject={setRejectReq} />;
       case 'issue-pr-po': return <IssuePRPOPage requests={requests} onIssue={handleIssuePRPO} toast={toast} />;
       case 'forward-accounting': return <ForwardAccountingPage requests={requests} onForward={r => setForwardReq(r)} />;
       case 'payment-list': return <PaymentListPage requests={requests} onRecord={r => { setRecordPayReq(r); setTransferDate(today()); }} />;
@@ -1859,7 +1913,7 @@ export default function App() {
       <Modal open={!!issuePRReq} title="แนบเอกสาร PR / PO" onClose={() => setIssuePRReq(null)}
         footer={
           <div className="flex gap-3">
-            <button onClick={() => { if (!prFile) { toast('กรุณาแนบเอกสาร PR', 'error'); return; } if (!poFile) { toast('กรุณาแนบเอกสาร PO', 'error'); return; } handleIssuePRPO(issuePRReq!.id, prFile, poFile, prNotes); }} className="flex-1 bg-blue-600 text-white rounded-xl py-2 text-sm font-semibold hover:bg-blue-700 transition-colors">ยืนยันและส่งต่อบัญชี</button>
+            <button onClick={() => { if (!prFileUrl) { toast('กรุณาแนบเอกสาร PR', 'error'); return; } if (!poFileUrl) { toast('กรุณาแนบเอกสาร PO', 'error'); return; } handleIssuePRPO(issuePRReq!.id, prFileUrl, poFileUrl, prNotes); }} className="flex-1 bg-blue-600 text-white rounded-xl py-2 text-sm font-semibold hover:bg-blue-700 transition-colors">ยืนยันและส่งต่อบัญชี</button>
             <button onClick={() => setIssuePRReq(null)} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">ยกเลิก</button>
           </div>
         }>
@@ -1869,8 +1923,8 @@ export default function App() {
               <div className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{issuePRReq.title}</div>
               <div className="mt-1">฿<span className="font-bold text-blue-600">{fmt(issuePRReq.totalAmount)}</span> · {issuePRReq.createdByName}</div>
             </div>
-            <FileUploadField label="เอกสาร PR *" fileName={prFile} onFile={setPrFile} />
-            <FileUploadField label="เอกสาร PO *" fileName={poFile} onFile={setPoFile} />
+            <FileUploadField label="เอกสาร PR *" fileName={prFile} onFile={(name, url) => { setPrFile(name); setPrFileUrl(url); }} onError={msg => toast(msg, 'error')} />
+            <FileUploadField label="เอกสาร PO *" fileName={poFile} onFile={(name, url) => { setPoFile(name); setPoFileUrl(url); }} onError={msg => toast(msg, 'error')} />
             <Textarea label="หมายเหตุ" value={prNotes} onChange={e => setPrNotes(e.target.value)} rows={2} />
           </div>
         )}
@@ -1893,7 +1947,7 @@ export default function App() {
       <Modal open={!!recordPayReq} title="บันทึกการโอนเงิน" onClose={() => setRecordPayReq(null)}
         footer={
           <div className="flex gap-3">
-            <button onClick={() => { if (!transferRef) { toast('กรุณากรอก Ref.', 'error'); return; } handleTransfer(recordPayReq!.id, transferRef, transferDate, transferNotes); }} className="flex-1 bg-green-600 text-white rounded-xl py-2 text-sm font-semibold hover:bg-green-700 transition-colors">ยืนยันการโอน</button>
+            <button onClick={() => { if (!transferRef) { toast('กรุณากรอก Ref.', 'error'); return; } handleTransfer(recordPayReq!.id, transferRef, transferDate, transferNotes, transferSlipUrl); }} className="flex-1 bg-green-600 text-white rounded-xl py-2 text-sm font-semibold hover:bg-green-700 transition-colors">ยืนยันการโอน</button>
             <button onClick={() => setRecordPayReq(null)} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">ยกเลิก</button>
           </div>
         }>
@@ -1906,6 +1960,7 @@ export default function App() {
             <Input label="เลขอ้างอิงการโอน *" value={transferRef} onChange={e => setTransferRef(e.target.value)} placeholder="TRF-010" />
             <Input label="วันที่โอน" type="date" value={transferDate} onChange={e => setTransferDate(e.target.value)} />
             <Textarea label="หมายเหตุ" value={transferNotes} onChange={e => setTransferNotes(e.target.value)} rows={2} />
+            <FileUploadField label="แนบสลิปการโอน" fileName={transferSlip} onFile={(name, url) => { setTransferSlip(name); setTransferSlipUrl(url); }} onError={msg => toast(msg, 'error')} />
           </div>
         )}
       </Modal>

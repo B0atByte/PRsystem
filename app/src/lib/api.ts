@@ -45,4 +45,27 @@ export const api = {
     log: (data: { action: string; module: string; detail: string }) =>
       req<any>('POST', '/api/audit', data),
   },
+  files: {
+    upload: async (file: File): Promise<{ url: string; name: string }> => {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`${BASE_URL}/api/files`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: form,
+      })
+      const data = await res.json().catch(() => ({ error: 'Network error' }))
+      if (!res.ok) throw new Error(data.error || `Error ${res.status}`)
+      return data
+    },
+    open: async (url: string) => {
+      const res = await fetch(`${BASE_URL}${url}`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+      if (!res.ok) throw new Error('ไม่พบไฟล์')
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, '_blank')
+    },
+  },
 }
