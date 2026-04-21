@@ -1719,6 +1719,16 @@ function SiteSettingsPage({ current, onSave, toast }: {
   const [logoUrl, setLogoUrl] = useState(current.logoUrl || '');
   const [logoName, setLogoName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  const handleTestEmail = async () => {
+    setTesting(true);
+    try {
+      const res = await api.settings.testEmail();
+      toast(`ส่งอีเมลทดสอบไปที่ ${res.sentTo} สำเร็จ ✓`, 'success');
+    } catch (err: any) { toast(err.message || 'ส่งอีเมลไม่สำเร็จ', 'error'); }
+    finally { setTesting(false); }
+  };
 
   const handleSave = async () => {
     if (!siteName.trim()) return toast('กรุณากรอกชื่อเว็บไซต์', 'error');
@@ -1801,6 +1811,24 @@ function SiteSettingsPage({ current, onSave, toast }: {
               รีเซ็ต
             </button>
           </div>
+        </div>
+      </Card>
+
+      {/* Test Email Card */}
+      <Card title="ทดสอบระบบอีเมล">
+        <div className="p-5 flex flex-col gap-3">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            กดปุ่มด้านล่างเพื่อส่งอีเมลทดสอบไปยัง email ของ account ที่ login อยู่
+          </p>
+          <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
+            <AlertCircle size={14} className="shrink-0 text-amber-500" />
+            ต้องอัปเดต Email ใน User Management ให้เป็นอีเมลจริงก่อน ระบบจึงจะส่งได้ถูกต้อง
+          </div>
+          <button onClick={handleTestEmail} disabled={testing}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold rounded-xl transition-colors text-sm w-fit">
+            {testing ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
+            {testing ? 'กำลังส่ง...' : 'ส่งอีเมลทดสอบ'}
+          </button>
         </div>
       </Card>
     </div>

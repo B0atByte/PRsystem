@@ -49,6 +49,7 @@ export const api = {
     get: () => req<any>('GET', '/api/settings'),
     update: (data: { siteName?: string; siteSubtitle?: string; logoUrl?: string | null }) =>
       req<any>('PUT', '/api/settings', data),
+    testEmail: () => req<{ ok: boolean; sentTo: string }>('POST', '/api/settings/test-email', {}),
   },
   files: {
     upload: async (file: File): Promise<{ url: string; name: string }> => {
