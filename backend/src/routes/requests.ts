@@ -93,17 +93,20 @@ requests.patch('/:id/status', async (c) => {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
+  const wrapFile = (url?: string) =>
+    url ? JSON.stringify({ url, by: user.name, byRole: user.role, at: new Date().toISOString() }) : undefined
+
   const updated = await prisma.purchaseRequest.update({
     where: { id },
     data: {
       status: body.status as RequestStatus,
       prNo: body.prNo,
       poNo: body.poNo,
-      prFile: body.prFile,
-      poFile: body.poFile,
+      prFile: body.prFile ? wrapFile(body.prFile) : undefined,
+      poFile: body.poFile ? wrapFile(body.poFile) : undefined,
       transferRef: body.transferRef,
       transferDate: body.transferDate,
-      transferFile: body.transferFile,
+      transferFile: body.transferFile ? wrapFile(body.transferFile) : undefined,
       notes: body.notes,
     },
     include: { items: true },

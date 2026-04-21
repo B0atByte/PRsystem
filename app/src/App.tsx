@@ -297,20 +297,43 @@ function FileUploadField({ label, fileName, onFile, onError }: {
 }
 
 // ─── File View Button ────────────────────────────────────────────────────────
-function FileButton({ label, url }: { label: string; url: string }) {
+type FileMeta = { url: string; by?: string; byRole?: string; at?: string }
+
+function parseFileMeta(raw?: string): FileMeta | null {
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return { url: raw }; }
+}
+
+function FileButton({ label, raw }: { label: string; raw: string }) {
   const [loading, setLoading] = useState(false);
-  const canView = url.startsWith('/api/files/');
+  const meta = parseFileMeta(raw);
+  if (!meta) return null;
+  const canView = meta.url.startsWith('/api/files/');
   const open = async () => {
     if (!canView) return;
     setLoading(true);
-    try { await api.files.open(url); } catch { /* ignore */ } finally { setLoading(false); }
+    try { await api.files.open(meta.url); } catch { /* ignore */ } finally { setLoading(false); }
   };
+  const roleLabel: Record<string, string> = {
+    purchasing: 'ฝ่ายจัดซื้อ', accounting: 'ฝ่ายบัญชี',
+    owner: 'ผู้ประกอบการ', employee: 'พนักงาน', itsupport: 'IT Support',
+  };
+  const atStr = meta.at ? new Date(meta.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '';
   return (
-    <button onClick={open} disabled={!canView || loading}
-      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-      {loading ? <RefreshCw size={12} className="animate-spin" /> : <FileCheck size={12} />}
-      {label}
-    </button>
+    <div className="flex flex-col gap-1">
+      <button onClick={open} disabled={!canView || loading}
+        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-fit">
+        {loading ? <RefreshCw size={12} className="animate-spin" /> : <FileCheck size={12} />}
+        {label}
+      </button>
+      {meta.by && (
+        <div className="text-[10px] text-slate-400 pl-1">
+          ดำเนินการโดย <span className="text-slate-600 dark:text-slate-300 font-medium">{meta.by}</span>
+          {meta.byRole && <span className="text-slate-400"> ({roleLabel[meta.byRole] || meta.byRole})</span>}
+          {atStr && <span> · {atStr}</span>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1671,25 +1694,10 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
         {(req.prFile || req.poFile || req.transferFile) && (
           <div>
             <div className="text-[11px] text-slate-400 font-medium mb-2">ไฟล์เอกสารแนบ</div>
-            <div className="flex flex-col gap-2">
-              {req.prFile && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5 font-medium whitespace-nowrap">ฝ่ายจัดซื้อ</span>
-                  <FileButton label="เอกสาร PR" url={req.prFile} />
-                </div>
-              )}
-              {req.poFile && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5 font-medium whitespace-nowrap">ฝ่ายจัดซื้อ</span>
-                  <FileButton label="เอกสาร PO" url={req.poFile} />
-                </div>
-              )}
-              {req.transferFile && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded px-1.5 py-0.5 font-medium whitespace-nowrap">ฝ่ายบัญชี</span>
-                  <FileButton label="สลิปโอนเงิน" url={req.transferFile} />
-                </div>
-              )}
+            <div className="flex flex-col gap-3">
+              {req.prFile && <FileButton label="เอกสาร PR" raw={req.prFile} />}
+              {req.poFile && <FileButton label="เอกสาร PO" raw={req.poFile} />}
+              {req.transferFile && <FileButton label="สลิปโอนเงิน" raw={req.transferFile} />}
             </div>
           </div>
         )}

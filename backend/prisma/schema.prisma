@@ -54,11 +54,11 @@ model PurchaseRequest {
   notes         String?       @db.Text
   prNo          String?
   poNo          String?
-  prFile        String?
-  poFile        String?
+  prFile        String?   @db.Text
+  poFile        String?   @db.Text
   transferRef   String?
   transferDate  String?
-  transferFile  String?
+  transferFile  String?   @db.Text
   createdBy     String
   createdByName String
   createdAt     DateTime      @default(now())
