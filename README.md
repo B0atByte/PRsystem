@@ -8,19 +8,19 @@
 
 > **ปัจจุบันอยู่ระหว่าง Phase 5–6 — Core ใช้งานได้ครบแล้ว**
 
-| Phase | ชื่อ | สถานะ |
-|-------|------|--------|
-| **0** | Setup & Infrastructure | ✅ เสร็จ |
-| **1** | Authentication | ✅ เสร็จ |
-| **2** | Dashboard | 🟡 บางส่วน |
-| **3** | Employee Pages | ✅ เสร็จ |
-| **4** | Purchasing Pages | ✅ เสร็จ |
-| **5** | Accounting Pages | 🟡 บางส่วน |
-| **6** | Tracking Page | ✅ เสร็จ |
-| **7** | IT Support Pages | ✅ เสร็จ |
-| **8** | PDF Generation | ⬜ ยังไม่ทำ |
-| **9** | Testing & QA | ⬜ ยังไม่ทำ |
-| **10** | Deploy & Go Live | ⬜ ยังไม่ทำ |
+| Phase | ชื่อ | สถานะ | หมายเหตุ |
+|-------|------|--------|---------|
+| **0** | Setup & Infrastructure | ✅ เสร็จ | |
+| **1** | Authentication | ✅ เสร็จ | |
+| **2** | Dashboard | 🟡 บางส่วน | ยังไม่มีกราฟใน Dashboard, ไม่มีตาราง 10 ล่าสุด |
+| **3** | Employee Pages | ✅ เสร็จ | |
+| **4** | Purchasing Pages | 🟡 บางส่วน | ขาด Email แจ้งบัญชี |
+| **5** | Accounting Pages | 🟡 บางส่วน | ขาด Email แจ้งผู้ขอ, Export CSV, sort dueDate |
+| **6** | Tracking Page | 🟡 บางส่วน | ขาด Real-time polling/SSE |
+| **7** | IT Support Pages | 🟡 บางส่วน | ขาด Export PDF/Excel ในรายงาน |
+| **8** | PDF Generation | ⬜ ยังไม่ทำ | |
+| **9** | Testing & QA | ⬜ ยังไม่ทำ | |
+| **10** | Deploy & Go Live | ⬜ ยังไม่ทำ | |
 
 ---
 
@@ -48,8 +48,8 @@
 ### 🟡 Phase 2 — Dashboard
 - ✅ Stat cards ดึงข้อมูลจาก DB จริง (จำนวนคำขอ, ยอดรวม, สถานะ)
 - ✅ Filter ตาม role อัตโนมัติ
-- ⬜ กราฟ Bar/Pie จากข้อมูลจริง (ยังเป็น mock)
-- ⬜ ตารางคำขอล่าสุด 10 รายการ
+- ✅ ตารางคำขอล่าสุด 10 รายการ (เรียงตาม updatedAt)
+- ⬜ กราฟ Bar/Pie ใน Dashboard (มีเฉพาะในหน้า Reports แยกต่างหาก)
 
 ---
 
@@ -77,47 +77,54 @@
 - บันทึก prNo / poNo ลง DB
 
 **หน้าส่งต่อบัญชี**
-- Forward status → accounting
-- ⬜ ส่ง Email แจ้งฝ่ายบัญชี (ยังไม่ทำ)
+- ✅ Forward status → accounting
+- ⬜ ส่ง Email แจ้งฝ่ายบัญชี
 
 ---
 
 ### 🟡 Phase 5 — Accounting Pages
 **หน้ารายการรอโอนเงิน**
 - ✅ ดึง status = accounting จาก DB
+- ⬜ เรียงตาม dueDate ใกล้หมดก่อน (ปัจจุบันเรียงตาม updatedAt)
 
 **หน้าบันทึกการโอน**
 - ✅ บันทึก transferRef + transferDate + แนบสลิป ลง DB
 - ✅ อัปเดต status → transferred
-- ⬜ ส่ง Email แจ้งผู้ขอ (ยังไม่ทำ)
+- ⬜ ส่ง Email แจ้งผู้ขอ
 
 **หน้าประวัติการโอน**
-- ✅ ตาราง + filter
-- ⬜ Export CSV (ยังไม่ทำ)
+- ✅ ตาราง + search
+- ⬜ Filter ตามช่วงวันที่
+- ⬜ Export CSV
 
 ---
 
 ### ✅ Phase 6 — Tracking Page
-- Timeline ดึงจาก DB จริง พร้อมวันที่แต่ละขั้น
-- Employee เห็นเฉพาะของตัวเอง
-- กดการ์ดเพื่อดูรายละเอียดเต็ม + ไฟล์แนบ
-- ⬜ Real-time polling / SSE (ยังไม่ทำ)
+- ✅ Timeline ดึงจาก DB จริง พร้อมสถานะแต่ละขั้น
+- ✅ Employee เห็นเฉพาะของตัวเอง
+- ✅ กดการ์ดเพื่อดูรายละเอียดเต็ม + ไฟล์แนบ
+- ⬜ Real-time polling / SSE (ต้อง refresh เพื่อดูสถานะใหม่)
 
 ---
 
 ### ✅ Phase 7 — IT Support Pages
 **หน้าจัดการผู้ใช้**
-- CRUD user ลง DB (เพิ่ม / แก้ไข / ลบ)
-- Reset password (รีเซ็ตเป็น 1234)
-- Toggle active / inactive
+- ✅ CRUD user ลง DB (เพิ่ม / แก้ไข / ลบ)
+- ✅ Reset password (รีเซ็ตเป็น 1234)
+- ✅ Toggle active / inactive
 
 **หน้า Audit Log**
-- บันทึก log ทุก action ลง DB
-- แสดง user, action, module, เวลา, IP
+- ✅ บันทึก log ทุก action ลง DB
+- ✅ แสดง user, action, module, เวลา, IP
+- ⬜ Filter by user / action / วันที่
 
-**ตั้งค่าเว็บไซต์** *(bonus)*
-- เปลี่ยนโลโก้ + ชื่อร้าน + subtitle ผ่าน UI
-- มีผล ทันทีทั้ง Login page, Sidebar, Favicon, Title
+**หน้ารายงาน**
+- ✅ กราฟ Bar/Pie จากข้อมูลจริง (อยู่ในหน้า Reports)
+- ⬜ Export PDF / Excel
+
+**ตั้งค่าเว็บไซต์** *(bonus — นอก phase plan)*
+- ✅ เปลี่ยนโลโก้ + ชื่อร้าน + subtitle ผ่าน UI
+- ✅ มีผลทันทีทั้ง Login page, Sidebar, Favicon, Title
 
 ---
 
