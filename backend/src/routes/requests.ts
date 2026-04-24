@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+import ExcelJS from 'exceljs'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { mailNewRequest, mailAccountingForward, mailTransferred, mailRejected } from '../lib/mailer.js'
@@ -65,26 +66,148 @@ const formatRequest = (r: any) => ({
 // GET /api/requests
 requests.get('/', async (c) => {
   const user = c.get('user')
-  // owner เห็นทุกใบ, role อื่นเห็นเฉพาะที่ตัวเองสร้าง + ที่ต้องดำเนินการตาม role
   const where = user.role === 'owner' ? {} : { createdBy: user.id }
   const data = await prisma.purchaseRequest.findMany({
     where,
-    include: { items: true },
     orderBy: { updatedAt: 'desc' },
   })
   return c.json(data.map(formatRequest))
 })
 
-// GET /api/requests/all — ดึงทุกใบสำหรับ role ที่ต้องดำเนินการ (purchasing, accounting, itsupport)
+// GET /api/requests/all
 requests.get('/all', async (c) => {
   const user = c.get('user')
   const allowed = ['owner', 'purchasing', 'accounting', 'itsupport']
   if (!allowed.includes(user.role)) return c.json({ error: 'Forbidden' }, 403)
   const data = await prisma.purchaseRequest.findMany({
-    include: { items: true },
     orderBy: { updatedAt: 'desc' },
   })
   return c.json(data.map(formatRequest))
+})
+
+// GET /api/requests/export — ต้องอยู่ก่อน /:id เพราะ Hono จะ match /export เป็น id ถ้าอยู่หลัง
+requests.get('/export', async (c) => {
+  const user = c.get('user')
+  const statusFilter = c.req.query('status') || ''
+  const allowed = ['owner', 'purchasing', 'accounting', 'itsupport']
+
+  const where: any = {}
+  if (!allowed.includes(user.role)) where.createdBy = user.id
+  if (statusFilter) where.status = statusFilter
+
+  const data = await prisma.purchaseRequest.findMany({ where, orderBy: { createdAt: 'desc' } })
+  const rows = data.map(formatRequest)
+
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'Casa Lapin PR System'; wb.created = new Date()
+
+  const STATUS_TH: Record<string, string> = { pending: 'รอฝ่ายจัดซื้อ', purchasing: 'ออก PR/PO', accounting: 'รอโอนเงิน', transferred: 'รอรับสินค้า', received: 'รับสินค้าแล้ว', rejected: 'ปฏิเสธ' }
+  const STATUS_COLOR: Record<string, string> = { pending: 'FFF59E0B', purchasing: 'FF3B82F6', accounting: 'FF8B5CF6', transferred: 'FFF97316', received: 'FF22C55E', rejected: 'FFEF4444' }
+  const STATUS_TEXT: Record<string, string> = { pending: 'FF92400E', purchasing: 'FF1E3A8A', accounting: 'FF4C1D95', transferred: 'FF7C2D12', received: 'FF14532D', rejected: 'FF7F1D1D' }
+  const PM_TH: Record<string, string> = { bank: 'โอนผ่านธนาคาร', cash: 'เงินสด', transfer: 'โอนเงิน' }
+
+  const settings = await prisma.settings.findUnique({ where: { id: 'singleton' } })
+  const siteName = settings?.siteName || 'Casa Lapin'
+
+  // ─── Sheet 1: สรุปภาพรวม ────────────────────────────────────────
+  const ws1 = wb.addWorksheet('สรุปภาพรวม')
+  ws1.columns = [{ width: 28 }, { width: 18 }, { width: 22 }, { width: 18 }]
+
+  ws1.mergeCells('A1:D1')
+  Object.assign(ws1.getCell('A1'), {
+    value: `${siteName} — รายงานใบขอซื้อ`,
+    font: { bold: true, size: 16, color: { argb: 'FFFFFFFF' } },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D4ED8' } },
+    alignment: { horizontal: 'center', vertical: 'middle' },
+  })
+  ws1.getRow(1).height = 36
+
+  ws1.mergeCells('A2:D2')
+  Object.assign(ws1.getCell('A2'), {
+    value: `สร้างเมื่อ: ${new Date().toLocaleString('th-TH')}${statusFilter ? `  |  กรองสถานะ: ${STATUS_TH[statusFilter] || statusFilter}` : ''}`,
+    font: { italic: true, color: { argb: 'FF64748B' } },
+    alignment: { horizontal: 'center' },
+  })
+  ws1.getRow(2).height = 20; ws1.getRow(3).height = 8
+
+  const hdrStyle = (row: ExcelJS.Row, texts: string[]) => {
+    row.height = 22
+    texts.forEach((t, i) => Object.assign(row.getCell(i + 1), {
+      value: t, font: { bold: true, color: { argb: 'FFFFFFFF' } },
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } },
+      alignment: { horizontal: 'center' },
+      border: { bottom: { style: 'thin', color: { argb: 'FF94A3B8' } } },
+    }))
+  }
+  hdrStyle(ws1.getRow(4), ['สถานะ', 'จำนวน (รายการ)', 'ยอดรวม (บาท)', 'สัดส่วน'])
+
+  const totalAmt = rows.reduce((s, r) => s + r.totalAmount, 0)
+  let ri = 5
+  for (const [k, label] of Object.entries(STATUS_TH)) {
+    const list = rows.filter(r => r.status === k)
+    if (!statusFilter && list.length === 0) continue
+    const amt = list.reduce((s, r) => s + r.totalAmount, 0)
+    const row = ws1.getRow(ri++); row.height = 20
+    ;[label, list.length, amt, totalAmt ? `${Math.round(amt / totalAmt * 100)}%` : '0%'].forEach((v, i) => {
+      const cell = row.getCell(i + 1)
+      Object.assign(cell, { value: v, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: STATUS_COLOR[k] || 'FFFFFFFF' } }, font: { color: { argb: STATUS_TEXT[k] || 'FF000000' }, bold: i === 0 }, alignment: { horizontal: i === 0 ? 'left' : 'center' }, border: { bottom: { style: 'hair', color: { argb: 'FFCBD5E1' } } } })
+      if (i === 2) { cell.numFmt = '#,##0.00'; cell.alignment = { horizontal: 'right' } }
+      if (i === 0) cell.alignment = { horizontal: 'left', indent: 1 }
+    })
+  }
+  const tr = ws1.getRow(ri); tr.height = 22
+  ;['รวมทั้งหมด', rows.length, totalAmt, '100%'].forEach((v, i) => {
+    const cell = tr.getCell(i + 1)
+    Object.assign(cell, { value: v, font: { bold: true }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }, alignment: { horizontal: i === 0 ? 'left' : 'center' }, border: { top: { style: 'medium', color: { argb: 'FF94A3B8' } } } })
+    if (i === 2) { cell.numFmt = '#,##0.00'; cell.alignment = { horizontal: 'right' } }
+  })
+
+  // ─── Sheet 2: รายละเอียด ─────────────────────────────────────────
+  const ws2 = wb.addWorksheet('รายละเอียด')
+  ws2.columns = [
+    { header: 'เลขที่', key: 'reqNo', width: 16 }, { header: 'ชื่อรายการ', key: 'title', width: 36 },
+    { header: 'หมวด', key: 'category', width: 16 }, { header: 'ผู้ขอ', key: 'createdByName', width: 20 },
+    { header: 'สถานะ', key: 'status', width: 18 }, { header: 'ยอดเงิน', key: 'totalAmount', width: 14 },
+    { header: 'วิธีชำระ', key: 'paymentMethod', width: 16 }, { header: 'กำหนดชำระ', key: 'dueDate', width: 14 },
+    { header: 'PR No.', key: 'prNo', width: 12 }, { header: 'PO No.', key: 'poNo', width: 12 },
+    { header: 'Ref โอนเงิน', key: 'transferRef', width: 16 }, { header: 'วันที่โอน', key: 'transferDate', width: 14 },
+    { header: 'วันที่สร้าง', key: 'createdAt', width: 14 },
+  ]
+  const hRow = ws2.getRow(1); hRow.height = 24
+  hRow.eachCell(cell => Object.assign(cell, {
+    font: { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 },
+    fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } },
+    alignment: { horizontal: 'center', vertical: 'middle' },
+    border: { bottom: { style: 'medium', color: { argb: 'FF93C5FD' } } },
+  }))
+
+  rows.forEach((r, idx) => {
+    const row = ws2.addRow({
+      reqNo: r.reqNo, title: r.title, category: r.category, createdByName: r.createdByName,
+      status: STATUS_TH[r.status] || r.status, totalAmount: r.totalAmount,
+      paymentMethod: PM_TH[r.paymentMethod] || r.paymentMethod, dueDate: r.dueDate || '—',
+      prNo: r.prNo || '—', poNo: r.poNo || '—', transferRef: r.transferRef || '—',
+      transferDate: r.transferDate || '—', createdAt: r.createdAt,
+    })
+    row.height = 19
+    row.eachCell((cell, col) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: idx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } }
+      cell.border = { bottom: { style: 'hair', color: { argb: 'FFE2E8F0' } } }
+      cell.alignment = { vertical: 'middle' }
+      if (col === 6) { cell.numFmt = '#,##0.00'; cell.alignment = { horizontal: 'right', vertical: 'middle' } }
+    })
+    const sc = row.getCell(5)
+    Object.assign(sc, { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: STATUS_COLOR[r.status] || 'FFSLATE' } }, font: { bold: true, color: { argb: STATUS_TEXT[r.status] || 'FF000000' } }, alignment: { horizontal: 'center', vertical: 'middle' } })
+  })
+  ws2.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const buf = await wb.xlsx.writeBuffer()
+  return new Response(buf as Buffer, {
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="purchase-report-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    },
+  })
 })
 
 // GET /api/requests/:id

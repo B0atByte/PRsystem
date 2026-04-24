@@ -6,7 +6,7 @@ import {
   Upload, Moon, Sun, ChevronDown, Activity,
   Shield, KeyRound, UserPlus, BarChart2,
   FileCheck, Send, Banknote, History, RefreshCw, Menu, Package,
-  Download, Printer, Filter, CalendarDays, MessageSquare
+  Download, Filter, CalendarDays, MessageSquare, ChevronLeft
 } from 'lucide-react';
 import {
   ROLE_LABELS, ROLE_COLORS, STATUS_LABELS, STATUS_COLORS, CATEGORIES,
@@ -30,6 +30,8 @@ interface SiteSettings {
   discordWebhook?: string | null;
   discordOnNewRequest?: boolean; discordOnPurchasing?: boolean; discordOnAccounting?: boolean;
   discordOnTransferred?: boolean; discordOnRejected?: boolean; discordOnReceived?: boolean;
+  discordReportEnabled?: boolean; discordReportTime?: string;
+  discordBotToken?: string | null; discordChannelId?: string | null;
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -213,6 +215,61 @@ function Table({ headers, rows }: { headers: string[]; rows: React.ReactNode }) 
   );
 }
 
+// ─── Pagination ───────────────────────────────────────────────────────────────
+const PAGE_SIZES = [10, 25, 50, 100];
+
+function getPageNums(current: number, total: number): (number | '...')[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: (number | '...')[] = [1];
+  if (current > 3) pages.push('...');
+  for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) pages.push(i);
+  if (current < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
+}
+
+function Pagination({ total, page, pageSize, onPage, onPageSize }: {
+  total: number; page: number; pageSize: number;
+  onPage: (p: number) => void; onPageSize: (s: number) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+
+  const btnBase = 'w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium border transition-colors';
+  const btnIdle = 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 bg-white dark:bg-slate-900';
+  const btnActive = 'border-blue-600 bg-blue-600 text-white';
+  const btnDisabled = 'border-slate-100 dark:border-slate-800 text-slate-300 dark:text-slate-600 bg-white dark:bg-slate-900 cursor-not-allowed';
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-3">
+      <div className="flex items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
+        <span>แสดง {from}–{to} จาก {total} รายการ</span>
+        <select value={pageSize} onChange={e => { onPageSize(+e.target.value); onPage(1); }}
+          className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20">
+          {PAGE_SIZES.map(s => <option key={s} value={s}>{s} / หน้า</option>)}
+        </select>
+      </div>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onPage(page - 1)} disabled={page === 1}
+          className={`${btnBase} ${page === 1 ? btnDisabled : btnIdle}`}>
+          <ChevronLeft size={13} />
+        </button>
+        {getPageNums(page, totalPages).map((p, i) =>
+          p === '...'
+            ? <span key={`e${i}`} className="w-8 text-center text-xs text-slate-400">…</span>
+            : <button key={p} onClick={() => onPage(p as number)}
+              className={`${btnBase} ${p === page ? btnActive : btnIdle}`}>{p}</button>
+        )}
+        <button onClick={() => onPage(page + 1)} disabled={page === totalPages}
+          className={`${btnBase} ${page === totalPages ? btnDisabled : btnIdle}`}>
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Section Card ─────────────────────────────────────────────────────────────
 function Card({ title, children, action }: { title?: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -302,60 +359,6 @@ function FileUploadField({ label, fileName, onFile, onError }: {
       </div>
     </div>
   );
-}
-
-// ─── PDF Print ───────────────────────────────────────────────────────────────
-const PM_LABELS: Record<string, string> = { bank: 'โอนเงิน', cash: 'เงินสด', transfer: 'โอนเงิน' };
-const PT_LABELS: Record<string, string> = { before: 'ก่อนส่งของ', after: 'หลังส่งของ' };
-
-function printRequest(req: PurchaseRequest) {
-  const html = `<!DOCTYPE html><html lang="th"><head><meta charset="UTF-8">
-  <title>ใบขอซื้อ ${req.reqNo}</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Sarabun','Tahoma',sans-serif;font-size:13px;color:#222;padding:24px;max-width:800px;margin:auto}
-    h1{font-size:20px;text-align:center;margin-bottom:4px}
-    .sub{text-align:center;color:#555;margin-bottom:20px;font-size:12px}
-    table{width:100%;border-collapse:collapse;margin-top:16px}
-    th{background:#f3f4f6;text-align:left;padding:7px 10px;font-size:11px;border:1px solid #ddd}
-    td{padding:7px 10px;border:1px solid #e5e7eb;font-size:12px;vertical-align:top}
-    .label{color:#6b7280;font-size:11px;margin-bottom:2px}
-    .val{font-size:13px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
-    .box{border:1px solid #e5e7eb;border-radius:8px;padding:12px}
-    .total{font-size:18px;font-weight:bold;color:#1d4ed8;text-align:right;margin-top:16px}
-    .sig{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:40px}
-    .sig-box{text-align:center;border-top:1px solid #888;padding-top:8px;font-size:11px;color:#555;margin-top:40px}
-    @media print{body{padding:10mm}}
-  </style></head><body>
-  <h1>ใบขอซื้อสินค้า</h1>
-  <div class="sub">${req.reqNo} · วันที่: ${req.createdAt} · สถานะ: ${STATUS_LABELS[req.status] || req.status}</div>
-  <div class="grid">
-    <div class="box"><div class="label">รายการ</div><div class="val">${req.title}</div></div>
-    <div class="box"><div class="label">ผู้ขอซื้อ</div><div class="val">${req.createdByName}</div></div>
-    <div class="box"><div class="label">หมวดหมู่</div><div class="val">${req.category || '—'}</div></div>
-    <div class="box"><div class="label">ร้านค้า / ผู้ขาย</div><div class="val">${req.supplierName || '—'}${req.supplierName2 ? ' / ' + req.supplierName2 : ''}</div></div>
-    <div class="box"><div class="label">วิธีชำระเงิน</div><div class="val">${PM_LABELS[req.paymentMethod] || req.paymentMethod} (${PT_LABELS[req.paymentTiming] || req.paymentTiming})</div></div>
-    <div class="box"><div class="label">กำหนดชำระ</div><div class="val">${req.dueDate || '—'}</div></div>
-    ${req.reason ? `<div class="box" style="grid-column:1/-1"><div class="label">เหตุผล / หมายเหตุ</div><div class="val">${req.reason}</div></div>` : ''}
-  </div>
-  ${req.items && req.items.length > 0 ? `
-  <table style="margin-top:20px">
-    <thead><tr><th>รหัส</th><th>รายการ</th><th>จำนวน</th><th>หน่วย</th><th style="text-align:right">ราคา/หน่วย</th><th style="text-align:right">รวม</th></tr></thead>
-    <tbody>${req.items.map(it => `<tr><td>${it.code || '—'}</td><td>${it.name}</td><td>${it.qty}</td><td>${it.unit}</td><td style="text-align:right">฿${it.price.toLocaleString()}</td><td style="text-align:right">฿${(it.qty * it.price).toLocaleString()}</td></tr>`).join('')}</tbody>
-  </table>` : ''}
-  <div class="total">ยอดรวมทั้งสิ้น: ฿${req.totalAmount.toLocaleString('th-TH')}</div>
-  ${req.prNo ? `<div style="margin-top:12px;font-size:12px;color:#555">PR: ${req.prNo} &nbsp;|&nbsp; PO: ${req.poNo || '—'}</div>` : ''}
-  ${req.transferRef ? `<div style="font-size:12px;color:#555;margin-top:4px">Ref โอนเงิน: ${req.transferRef} (${req.transferDate || ''})</div>` : ''}
-  <div class="sig">
-    <div><div style="height:50px"></div><div class="sig-box">ผู้ขอซื้อ / ${req.createdByName}</div></div>
-    <div><div style="height:50px"></div><div class="sig-box">ฝ่ายจัดซื้อ</div></div>
-    <div><div style="height:50px"></div><div class="sig-box">ผู้อนุมัติ</div></div>
-  </div>
-  <script>window.onload=()=>{window.print();}</script>
-  </body></html>`;
-  const w = window.open('', '_blank', 'width=850,height=700');
-  if (w) { w.document.write(html); w.document.close(); }
 }
 
 // ─── File View Button ────────────────────────────────────────────────────────
@@ -728,7 +731,7 @@ function EditRequestModal({ req, onClose, onSaved, toast }: {
   const [categories] = useState<string[]>(req.categories || []);
   const [supplierName] = useState(req.supplierName);
   const [supplierName2] = useState(req.supplierName2 || '');
-  const [items] = useState(req.items.map(i => ({ code: i.code, name: i.name, qty: i.qty, unit: i.unit, price: i.price, itemNote: i.itemNote })));
+  const [items] = useState((req.items ?? []).map(i => ({ code: i.code, name: i.name, qty: i.qty, unit: i.unit, price: i.price, itemNote: i.itemNote })));
   const [paymentMethod, setPaymentMethod] = useState(req.paymentMethod);
   const [paymentTiming, setPaymentTiming] = useState(req.paymentTiming);
   const [orderDate, setOrderDate] = useState(req.orderDate);
@@ -864,8 +867,8 @@ function EditRequestModal({ req, onClose, onSaved, toast }: {
           <Input label="วันที่รับสินค้า" type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
           <Sel label="วันที่ต้องชำระ" value={dueDate} onChange={e => setDueDate(e.target.value)}>
             <option value="">-- เลือกระยะเวลา --</option>
-            <option value="วันที่ 10">วันที่ 10 ของเดือน</option>
-            <option value="วันที่ 25">วันที่ 25 ของเดือน</option>
+            <option value="วันที่ 10">วันที่ 10 </option>
+            <option value="วันที่ 25">วันที่ 25 </option>
           </Sel>
         </div>
 
@@ -942,14 +945,17 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
 function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { requests: PurchaseRequest[]; user: User; onView: (r: PurchaseRequest) => void; onEdit: (r: PurchaseRequest) => void; onReceive: (r: PurchaseRequest) => void }) {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const mine = requests.filter(r => r.createdBy === user.id)
     .filter(r => (r.title.toLowerCase().includes(search.toLowerCase()) || r.reqNo.includes(search)) && (!filterStatus || r.status === filterStatus));
+  const paged = mine.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div className="page-anim flex flex-col gap-4">
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex-1 min-w-[180px] max-w-xs"><SearchBar value={search} onChange={setSearch} /></div>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+        <div className="flex-1 min-w-[180px] max-w-xs"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} /></div>
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
           className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุกสถานะ</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -959,7 +965,7 @@ function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { request
       <div className="sm:hidden flex flex-col gap-2">
         {mine.length === 0
           ? <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-12 text-center text-slate-400 text-sm">ไม่พบข้อมูล</div>
-          : mine.map(r => (
+          : paged.map(r => (
             <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -977,6 +983,7 @@ function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { request
             </div>
           ))
         }
+        {mine.length > 0 && <Pagination total={mine.length} page={page} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />}
       </div>
       {/* Desktop table */}
       <div className="hidden sm:block">
@@ -984,7 +991,7 @@ function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { request
           <Table headers={['เลขที่', 'รายการ', 'จำนวนเงิน', 'สถานะ', 'วันที่', '']} rows={
             mine.length === 0
               ? <tr><td colSpan={6} className="text-center py-12 text-slate-400 text-sm">ไม่พบข้อมูล</td></tr>
-              : mine.map(r => (
+              : paged.map(r => (
                 <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                   <td className="px-4 py-3 text-xs font-mono text-slate-400">{r.reqNo}</td>
                   <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 max-w-[180px] truncate">{r.title}</td>
@@ -1001,6 +1008,7 @@ function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { request
                 </tr>
               ))
           } />
+          {mine.length > 0 && <div className="px-4 pb-3"><Pagination total={mine.length} page={page} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} /></div>}
         </Card>
       </div>
     </div>
@@ -1269,8 +1277,8 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
             <Input label="วันที่จะรับสินค้า" type="date" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
             <Sel label="วันที่ต้องชำระ" value={dueDate} onChange={e => setDueDate(e.target.value)}>
               <option value="">-- เลือกระยะเวลา --</option>
-              <option value="วันที่ 10">วันที่ 10 ของเดือน</option>
-              <option value="วันที่ 25">วันที่ 25 ของเดือน</option>
+              <option value="วันที่ 10">วันที่ 10 </option>
+              <option value="วันที่ 25">วันที่ 25 </option>
             </Sel>
           </div>
 
@@ -1301,46 +1309,52 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
 
 function PendingApprovalPage({ requests, onIssuePRPO, onReject, onView }: { requests: PurchaseRequest[]; onIssuePRPO: (r: PurchaseRequest) => void; onReject: (r: PurchaseRequest) => void; onView: (r: PurchaseRequest) => void }) {
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const pending = requests.filter(r => r.status === 'pending' && r.title.toLowerCase().includes(search.toLowerCase()));
+  const paged = pending.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div className="page-anim flex flex-col gap-4">
-      <div className="max-w-xs"><SearchBar value={search} onChange={setSearch} placeholder="ค้นหาคำขอ..." /></div>
+      <div className="max-w-xs"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} placeholder="ค้นหาคำขอ..." /></div>
       {pending.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-16 text-center">
           <CheckCircle size={36} className="mx-auto text-green-400 mb-3" />
           <p className="text-slate-400 text-sm">ไม่มีรายการรออนุมัติ</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
-          {pending.map(r => (
-            <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-5">
-              <div className="flex items-start justify-between gap-4">
-                <button onClick={() => onView(r)} className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="text-xs font-mono text-slate-400">{r.reqNo}</span>
-                    <StatusBadge status={r.status} />
-                  </div>
-                  <div className="font-semibold text-slate-800 dark:text-white text-sm leading-snug">{r.title}</div>
-                  <div className="text-xs text-slate-400 mt-1.5 space-x-2">
-                    <span>ผู้ขอ: <span className="text-slate-600 dark:text-slate-300">{r.createdByName}</span></span>
-                    <span>·</span><span>{r.createdAt}</span>
-                    <span>·</span><span>{r.category}</span>
-                  </div>
-                  <div className="text-sm font-bold text-blue-600 mt-2">฿{fmt(r.totalAmount)}</div>
-                </button>
-                <div className="flex flex-col gap-2 shrink-0">
-                  <button onClick={() => onIssuePRPO(r)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition-colors whitespace-nowrap">
-                    <FileCheck size={13} />ออก PR/PO
+        <>
+          <div className="flex flex-col gap-3">
+            {paged.map(r => (
+              <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <button onClick={() => onView(r)} className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-xs font-mono text-slate-400">{r.reqNo}</span>
+                      <StatusBadge status={r.status} />
+                    </div>
+                    <div className="font-semibold text-slate-800 dark:text-white text-sm leading-snug">{r.title}</div>
+                    <div className="text-xs text-slate-400 mt-1.5 space-x-2">
+                      <span>ผู้ขอ: <span className="text-slate-600 dark:text-slate-300">{r.createdByName}</span></span>
+                      <span>·</span><span>{r.createdAt}</span>
+                      <span>·</span><span>{r.category}</span>
+                    </div>
+                    <div className="text-sm font-bold text-blue-600 mt-2">฿{fmt(r.totalAmount)}</div>
                   </button>
-                  <button onClick={() => onReject(r)} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-xs font-semibold hover:bg-red-100 transition-colors whitespace-nowrap">
-                    <XCircle size={13} />ปฏิเสธ
-                  </button>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button onClick={() => onIssuePRPO(r)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition-colors whitespace-nowrap">
+                      <FileCheck size={13} />ออก PR/PO
+                    </button>
+                    <button onClick={() => onReject(r)} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-xs font-semibold hover:bg-red-100 transition-colors whitespace-nowrap">
+                      <XCircle size={13} />ปฏิเสธ
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          <Pagination total={pending.length} page={page} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />
+        </>
       )}
     </div>
   );
@@ -1515,6 +1529,8 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const done = requests.filter(r => {
     if (r.status !== 'transferred') return false;
@@ -1524,6 +1540,7 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
     return true;
   });
   const totalAmt = done.reduce((s, r) => s + r.totalAmount, 0);
+  const paged = done.slice((page - 1) * pageSize, page * pageSize);
 
   const exportCSV = () => {
     const headers = ['เลขที่', 'รายการ', 'จำนวนเงิน', 'Ref. โอน', 'วันที่โอน', 'ผู้ขอ'];
@@ -1538,7 +1555,7 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
   return (
     <div className="page-anim flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="max-w-xs flex-1"><SearchBar value={search} onChange={setSearch} /></div>
+        <div className="max-w-xs flex-1"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} /></div>
         <div className="flex items-center gap-1.5 text-xs text-slate-500">
           <Filter size={12} />
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
@@ -1546,7 +1563,7 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
           <span>—</span>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
             className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20" />
-          {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-slate-400 hover:text-red-500"><X size={12} /></button>}
+          {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(1); }} className="text-slate-400 hover:text-red-500"><X size={12} /></button>}
         </div>
         <div className="text-xs text-slate-500 bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 px-3 py-1.5 rounded-xl">
           ยอดรวม: <span className="font-bold text-green-600">฿{fmt(totalAmt)}</span>
@@ -1559,7 +1576,7 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
         <Table headers={['เลขที่', 'รายการ', 'จำนวนเงิน', 'Ref. โอน', 'วันที่โอน', 'ผู้ขอ']} rows={
           done.length === 0
             ? <tr><td colSpan={6} className="text-center py-12 text-slate-400 text-sm">ไม่พบข้อมูล</td></tr>
-            : done.map(r => (
+            : paged.map(r => (
               <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                 <td className="px-4 py-3 text-xs font-mono text-slate-400">{r.reqNo}</td>
                 <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200 max-w-[160px] truncate">{r.title}</td>
@@ -1570,6 +1587,7 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
               </tr>
             ))
         } />
+        {done.length > 0 && <div className="px-4 pb-3"><Pagination total={done.length} page={page} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} /></div>}
       </Card>
     </div>
   );
@@ -1578,26 +1596,33 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
 function AllRequestsPage({ requests }: { requests: PurchaseRequest[] }) {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const filtered = requests.filter(r =>
     (r.title.toLowerCase().includes(search.toLowerCase()) || r.reqNo.includes(search)) &&
     (!filterStatus || r.status === filterStatus)
   );
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
   return (
     <div className="page-anim flex flex-col gap-4">
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex-1 min-w-[180px] max-w-xs"><SearchBar value={search} onChange={setSearch} /></div>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+        <div className="flex-1 min-w-[180px] max-w-xs"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} /></div>
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
           className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุกสถานะ</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <span className="text-xs text-slate-400 ml-auto">{filtered.length} รายการ</span>
+        <span className="text-xs text-slate-400">{filtered.length} รายการ</span>
+        <button onClick={() => api.requests.exportExcel(filterStatus || undefined).catch(() => { })}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors ml-auto">
+          <Download size={13} />Export Excel
+        </button>
       </div>
       <Card>
         <Table headers={['เลขที่', 'รายการ', 'ผู้ขอ', 'หมวด', 'จำนวนเงิน', 'สถานะ', 'วันที่']} rows={
           filtered.length === 0
             ? <tr><td colSpan={7} className="text-center py-12 text-slate-400 text-sm">ไม่พบข้อมูล</td></tr>
-            : filtered.map(r => (
+            : paged.map(r => (
               <tr key={r.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                 <td className="px-4 py-3 text-xs font-mono text-slate-400">{r.reqNo}</td>
                 <td className="px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-200 max-w-[160px] truncate">{r.title}</td>
@@ -1609,6 +1634,7 @@ function AllRequestsPage({ requests }: { requests: PurchaseRequest[] }) {
               </tr>
             ))
         } />
+        {filtered.length > 0 && <div className="px-4 pb-3"><Pagination total={filtered.length} page={page} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} /></div>}
       </Card>
     </div>
   );
@@ -1704,6 +1730,8 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
   const [filterAction, setFilterAction] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const actionColor: Record<string, string> = {
     LOGIN: 'bg-blue-100 text-blue-700', CREATE: 'bg-green-100 text-green-700',
@@ -1720,6 +1748,7 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
     if (dateTo && dateStr > dateTo) return false;
     return true;
   });
+  const pagedLogs = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const exportCSV = () => {
     const headers = ['เวลา', 'ผู้ใช้', 'Action', 'Module', 'รายละเอียด', 'IP'];
@@ -1733,8 +1762,8 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
   return (
     <div className="page-anim flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="max-w-xs flex-1"><SearchBar value={search} onChange={setSearch} placeholder="ค้นหาใน audit log..." /></div>
-        <select value={filterAction} onChange={e => setFilterAction(e.target.value)}
+        <div className="max-w-xs flex-1"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} placeholder="ค้นหาใน audit log..." /></div>
+        <select value={filterAction} onChange={e => { setFilterAction(e.target.value); setPage(1); }}
           className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20">
           <option value="">ทุก Action</option>
           {actions.map(a => <option key={a} value={a}>{a}</option>)}
@@ -1752,12 +1781,11 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
           <Download size={12} />Export CSV
         </button>
       </div>
-      <div className="text-xs text-slate-400 pl-1">แสดง {filtered.length} รายการ</div>
       <Card>
         <Table headers={['เวลา', 'ผู้ใช้', 'Action', 'Module', 'รายละเอียด', 'IP']} rows={
           filtered.length === 0
             ? <tr><td colSpan={6} className="text-center py-12 text-slate-400 text-sm">ไม่พบข้อมูล</td></tr>
-            : filtered.map(l => (
+            : pagedLogs.map(l => (
               <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                 <td className="px-4 py-3 text-[11px] font-mono text-slate-400 whitespace-nowrap">{l.timestamp}</td>
                 <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">{l.userName}</td>
@@ -1768,72 +1796,187 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
               </tr>
             ))
         } />
+        {filtered.length > 0 && <div className="px-4 pb-3"><Pagination total={filtered.length} page={page} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} /></div>}
       </Card>
     </div>
   );
 }
 
+const MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']
+const THAI_YEAR = (y: number) => y + 543
+
 function ReportsPage({ requests }: { requests: PurchaseRequest[] }) {
-  const total = requests.reduce((s, r) => s + r.totalAmount, 0);
+  const now = new Date()
+  const [period, setPeriod] = useState<'all' | 'day' | 'month' | 'year'>('month')
+  const [selDate, setSelDate] = useState(now.toISOString().slice(0, 10))
+  const [selMonth, setSelMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`)
+  const [selYear, setSelYear] = useState(now.getFullYear())
+
+  const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i)
+
+  // กรองข้อมูลตาม period
+  const filtered = requests.filter(r => {
+    const d = r.createdAt || ''
+    if (period === 'day') return d === selDate
+    if (period === 'month') return d.slice(0, 7) === selMonth
+    if (period === 'year') return d.slice(0, 4) === String(selYear)
+    return true
+  })
+
+  // BarChart data ตาม period
+  const barData = (() => {
+    if (period === 'year') {
+      return MONTH_SHORT.map((label, i) => {
+        const m = `${selYear}-${String(i + 1).padStart(2, '0')}`
+        return { label, value: filtered.filter(r => (r.createdAt || '').startsWith(m)).reduce((s, r) => s + r.totalAmount, 0) }
+      })
+    }
+    if (period === 'month') {
+      const [y, m] = selMonth.split('-').map(Number)
+      const days = new Date(y, m, 0).getDate()
+      return Array.from({ length: days }, (_, i) => {
+        const day = `${selMonth}-${String(i + 1).padStart(2, '0')}`
+        return { label: String(i + 1), value: filtered.filter(r => r.createdAt === day).reduce((s, r) => s + r.totalAmount, 0) }
+      })
+    }
+    if (period === 'day') {
+      return CATEGORIES.map(cat => ({
+        label: cat.slice(0, 4), value: filtered.filter(r => r.category === cat).reduce((s, r) => s + r.totalAmount, 0)
+      })).filter(d => d.value > 0)
+    }
+    // all — 6 เดือนล่าสุด
+    return Array.from({ length: 6 }, (_, i) => {
+      const m = new Date(); m.setMonth(m.getMonth() - 5 + i)
+      const key = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`
+      return { label: MONTH_SHORT[m.getMonth()], value: requests.filter(r => (r.createdAt || '').startsWith(key)).reduce((s, r) => s + r.totalAmount, 0) }
+    })
+  })()
+
+  const periodLabel = (() => {
+    if (period === 'day') return `วันที่ ${new Date(selDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}`
+    if (period === 'month') { const [y, m] = selMonth.split('-').map(Number); return `${MONTH_SHORT[m - 1]} ${THAI_YEAR(y)}` }
+    if (period === 'year') return `ปี ${THAI_YEAR(selYear)}`
+    return 'ทั้งหมด'
+  })()
+
+  const total = filtered.reduce((s, r) => s + r.totalAmount, 0)
+  const transferred = filtered.filter(r => r.status === 'transferred' || r.status === 'received').reduce((s, r) => s + r.totalAmount, 0)
+  const inProgress = filtered.filter(r => ['pending', 'purchasing', 'accounting', 'transferred'].includes(r.status)).reduce((s, r) => s + r.totalAmount, 0)
+  const catData = CATEGORIES.map(cat => ({ label: cat, value: filtered.filter(r => r.category === cat).reduce((s, r) => s + r.totalAmount, 0) })).filter(d => d.value > 0)
 
   const exportCSV = () => {
-    const headers = ['เลขที่', 'รายการ', 'หมวด', 'จำนวนเงิน', 'สถานะ', 'วันที่สร้าง', 'ผู้ขอ', 'วิธีชำระ'];
-    const rows = requests.map(r => [r.reqNo, r.title, r.category, r.totalAmount, STATUS_LABELS[r.status] || r.status, r.createdAt, r.createdByName, r.paymentMethod]);
-    const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `purchase-report-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
-  };
-  const transferred = requests.filter(r => r.status === 'transferred').reduce((s, r) => s + r.totalAmount, 0);
-  const inProgress = requests.filter(r => r.status !== 'transferred' && r.status !== 'rejected').reduce((s, r) => s + r.totalAmount, 0);
-  const catData = CATEGORIES.map(cat => ({ label: cat, value: requests.filter(r => r.category === cat).reduce((s, r) => s + r.totalAmount, 0) })).filter(d => d.value > 0);
+    const headers = ['เลขที่', 'รายการ', 'หมวด', 'จำนวนเงิน', 'สถานะ', 'วันที่สร้าง', 'ผู้ขอ', 'วิธีชำระ']
+    const rows = filtered.map(r => [r.reqNo, r.title, r.category, r.totalAmount, STATUS_LABELS[r.status] || r.status, r.createdAt, r.createdByName, r.paymentMethod])
+    const csv = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `report-${period}-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url)
+  }
+
+  const tabCls = (t: typeof period) =>
+    `px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors ${period === t ? 'bg-blue-600 text-white' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`
 
   return (
     <div className="page-anim flex flex-col gap-5">
-      <div className="flex justify-end">
-        <button onClick={exportCSV} className="flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors">
-          <Download size={13} />Export CSV
+      {/* Period selector */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+          {(['all', 'day', 'month', 'year'] as const).map(p => (
+            <button key={p} onClick={() => setPeriod(p)} className={tabCls(p)}>
+              {p === 'all' ? 'ทั้งหมด' : p === 'day' ? 'รายวัน' : p === 'month' ? 'รายเดือน' : 'รายปี'}
+            </button>
+          ))}
+        </div>
+
+        {period === 'day' && (
+          <input type="date" value={selDate} onChange={e => setSelDate(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20" />
+        )}
+        {period === 'month' && (
+          <input type="month" value={selMonth} onChange={e => setSelMonth(e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20" />
+        )}
+        {period === 'year' && (
+          <select value={selYear} onChange={e => setSelYear(+e.target.value)}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20">
+            {yearOptions.map(y => <option key={y} value={y}>ปี {THAI_YEAR(y)}</option>)}
+          </select>
+        )}
+
+        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 ml-1">{periodLabel}</span>
+        <span className="text-xs text-slate-400 ml-auto">{filtered.length} รายการ</span>
+        <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors">
+          <Download size={12} />Export CSV
         </button>
       </div>
+
+      {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <StatCard label="งบประมาณรวมทั้งหมด" value={`฿${fmt(total)}`} icon={DollarSign} color="bg-blue-100 dark:bg-blue-900/30 text-blue-600" />
-        <StatCard label="โอนเงินสำเร็จ" value={`฿${fmt(transferred)}`} icon={CheckCircle} color="bg-green-100 dark:bg-green-900/30 text-green-600" />
-        <StatCard label="อยู่ระหว่างดำเนินการ" value={`฿${fmt(inProgress)}`} icon={Clock} color="bg-amber-100 dark:bg-amber-900/30 text-amber-600" />
+        <StatCard label={`ยอดรวม${period === 'all' ? '' : ` (${periodLabel})`}`} value={`฿${fmt(total)}`} icon={DollarSign} color="bg-blue-100 dark:bg-blue-900/30 text-blue-600" />
+        <StatCard label="โอนเงิน/รับสินค้าแล้ว" value={`฿${fmt(transferred)}`} icon={CheckCircle} color="bg-green-100 dark:bg-green-900/30 text-green-600" />
+        <StatCard label="กำลังดำเนินการ" value={`฿${fmt(inProgress)}`} icon={Clock} color="bg-amber-100 dark:bg-amber-900/30 text-amber-600" />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card title="งบประมาณตามหมวดหมู่">
-          <div className="px-5 pb-5 pt-2"><PieChart data={catData} /></div>
-        </Card>
-        <Card title="สรุปสถานะคำขอ">
-          <div className="p-5">
-            {Object.entries(STATUS_LABELS).map(([k]) => {
-              const count = requests.filter(r => r.status === k).length;
-              const pct = total ? Math.round(requests.filter(r => r.status === k).reduce((s, r) => s + r.totalAmount, 0) / total * 100) : 0;
-              return (
-                <div key={k} className="flex items-center justify-between py-2 border-b border-slate-50 dark:border-slate-800 last:border-0">
-                  <div className="flex items-center gap-2.5"><StatusBadge status={k} /><span className="text-xs text-slate-500">{count} รายการ</span></div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-20 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} /></div>
-                    <span className="text-xs text-slate-400 w-8 text-right">{pct}%</span>
-                  </div>
-                </div>
-              );
-            })}
+
+      {filtered.length === 0 ? (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-16 text-center">
+          <CalendarDays size={36} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+          <p className="text-slate-400 text-sm">ไม่มีข้อมูลในช่วงเวลานี้</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card title={period === 'year' ? `ยอดรายเดือน ปี ${THAI_YEAR(selYear)}` : period === 'month' ? `ยอดรายวัน ${periodLabel}` : period === 'day' ? 'ยอดตามหมวด' : 'ยอด 6 เดือนล่าสุด'}>
+              <div className="px-5 pb-5 pt-2"><BarChart data={barData} /></div>
+            </Card>
+            <Card title="สัดส่วนตามหมวดหมู่">
+              <div className="px-5 pb-5 pt-2">
+                {catData.length > 0 ? <PieChart data={catData} /> : <p className="text-slate-400 text-sm py-8 text-center">ไม่มีข้อมูล</p>}
+              </div>
+            </Card>
           </div>
-        </Card>
-      </div>
-      <Card title="สรุปตามหมวดหมู่">
-        <Table headers={['หมวดหมู่', 'จำนวนคำขอ', 'ยอดรวม', 'สัดส่วน']} rows={
-          catData.map((d, i) => (
-            <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-              <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{d.label}</td>
-              <td className="px-4 py-3 text-sm text-slate-500">{requests.filter(r => r.category === d.label).length} รายการ</td>
-              <td className="px-4 py-3 text-sm font-semibold text-blue-600">฿{fmt(d.value)}</td>
-              <td className="px-4 py-3 text-sm text-slate-400">{total ? Math.round(d.value / total * 100) : 0}%</td>
-            </tr>
-          ))
-        } />
-      </Card>
+
+          <Card title="สรุปสถานะคำขอ">
+            <div className="p-5">
+              {Object.entries(STATUS_LABELS).map(([k]) => {
+                const count = filtered.filter(r => r.status === k).length
+                const amt = filtered.filter(r => r.status === k).reduce((s, r) => s + r.totalAmount, 0)
+                const pct = total ? Math.round(amt / total * 100) : 0
+                if (count === 0) return null
+                return (
+                  <div key={k} className="flex items-center justify-between py-2.5 border-b border-slate-50 dark:border-slate-800 last:border-0">
+                    <div className="flex items-center gap-2.5">
+                      <StatusBadge status={k} />
+                      <span className="text-xs text-slate-500">{count} รายการ</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">฿{fmt(amt)}</span>
+                      <div className="w-20 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs text-slate-400 w-7 text-right">{pct}%</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+
+          <Card title="สรุปตามหมวดหมู่">
+            <Table headers={['หมวดหมู่', 'จำนวนคำขอ', 'ยอดรวม', 'สัดส่วน']} rows={
+              catData.length === 0
+                ? <tr><td colSpan={4} className="text-center py-8 text-slate-400 text-sm">ไม่มีข้อมูล</td></tr>
+                : catData.map((d, i) => (
+                  <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">{d.label}</td>
+                    <td className="px-4 py-3 text-sm text-slate-500">{filtered.filter(r => r.category === d.label).length} รายการ</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-blue-600">฿{fmt(d.value)}</td>
+                    <td className="px-4 py-3 text-sm text-slate-400">{total ? Math.round(d.value / total * 100) : 0}%</td>
+                  </tr>
+                ))
+            } />
+          </Card>
+        </>
+      )}
     </div>
   );
 }
@@ -1848,6 +1991,8 @@ function TrackingPage({ requests, user, onView }: {
 }) {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   type StepState = 'done' | 'current' | 'pending' | 'rejected';
 
@@ -1902,6 +2047,7 @@ function TrackingPage({ requests, user, onView }: {
       (!filterStatus || r.status === filterStatus)
     )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const pagedVisible = visible.slice((page - 1) * pageSize, page * pageSize);
 
   const allCounts = (['pending', 'purchasing', 'accounting', 'transferred', 'received', 'rejected'] as const).map(k => ({
     key: k,
@@ -1914,26 +2060,30 @@ function TrackingPage({ requests, user, onView }: {
       <div className="flex flex-wrap gap-2 items-center">
         {allCounts.map(s => (
           <button key={s.key}
-            onClick={() => setFilterStatus(filterStatus === s.key ? '' : s.key)}
+            onClick={() => { setFilterStatus(filterStatus === s.key ? '' : s.key); setPage(1); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 transition-all hover:shadow-sm ${filterStatus === s.key ? 'ring-2 ring-blue-400 ring-offset-1' : ''}`}>
             <StatusBadge status={s.key} />
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{s.count}</span>
           </button>
         ))}
         {filterStatus && (
-          <button onClick={() => setFilterStatus('')}
+          <button onClick={() => { setFilterStatus(''); setPage(1); }}
             className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors">
             <X size={11} />ล้างตัวกรอง
           </button>
         )}
       </div>
 
-      {/* Search + count */}
+      {/* Search + count + export */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex-1 min-w-[180px] max-w-xs">
-          <SearchBar value={search} onChange={setSearch} placeholder="ค้นหาเลขที่ / รายการ..." />
+          <SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} placeholder="ค้นหาเลขที่ / รายการ..." />
         </div>
         <span className="text-xs text-slate-400">{visible.length} รายการ</span>
+        <button onClick={() => api.requests.exportExcel(filterStatus || undefined).catch(() => { })}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors ml-auto">
+          <Download size={13} />Export Excel
+        </button>
       </div>
 
       {/* Cards */}
@@ -1943,7 +2093,7 @@ function TrackingPage({ requests, user, onView }: {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          {visible.map(r => {
+          {pagedVisible.map(r => {
             const steps = getSteps(r);
             return (
               <div key={r.id} onClick={() => onView(r)}
@@ -1996,6 +2146,7 @@ function TrackingPage({ requests, user, onView }: {
           })}
         </div>
       )}
+      {visible.length > 0 && <Pagination total={visible.length} page={page} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />}
     </div>
   );
 }
@@ -2046,14 +2197,7 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
         st === 'rejected' ? 'text-red-500 dark:text-red-400' : 'text-slate-400';
 
   return (
-    <Modal open title={`${req.reqNo} — รายละเอียด`} onClose={onClose}
-      footer={
-        <div className="flex justify-end">
-          <button onClick={() => printRequest(req)} className="flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors">
-            <Printer size={13} />พิมพ์ / บันทึก PDF
-          </button>
-        </div>
-      }>
+    <Modal open title={`${req.reqNo} — รายละเอียด`} onClose={onClose}>
       <div className="space-y-4 text-sm">
         {/* Tracking Timeline */}
         <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-4">
@@ -2100,7 +2244,7 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
         <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3.5">
           <div className="text-[11px] text-slate-400 font-medium mb-2">รายการสินค้า</div>
           <div className="space-y-1">
-            {req.items.map((it, i) => (
+            {(req.items ?? []).map((it, i) => (
               <div key={i} className="flex justify-between text-xs text-slate-600 dark:text-slate-400">
                 <span>{it.name} × {it.qty} {it.unit}</span>
                 <span className="font-medium">฿{fmt(it.qty * it.price)}</span>
@@ -2184,6 +2328,15 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
 // ═══════════════════════════════════════════════════════════════════
 // DISCORD SETTINGS PAGE
 // ═══════════════════════════════════════════════════════════════════
+function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button onClick={onToggle}
+      className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${on ? 'bg-indigo-500' : 'bg-slate-200 dark:bg-slate-700'}`}>
+      <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${on ? 'left-6' : 'left-1'}`} />
+    </button>
+  );
+}
+
 function DiscordSettingsPage({ current, onSave, toast }: {
   current: SiteSettings; onSave: (s: SiteSettings) => void; toast: (m: string, t?: Toast['type']) => void;
 }) {
@@ -2196,8 +2349,20 @@ function DiscordSettingsPage({ current, onSave, toast }: {
     discordOnRejected: current.discordOnRejected ?? true,
     discordOnReceived: current.discordOnReceived ?? true,
   });
+  const [reportEnabled, setReportEnabled] = useState(current.discordReportEnabled ?? false);
+  const [reportTime, setReportTime] = useState(current.discordReportTime || '08:00');
+  const [botToken, setBotToken] = useState(current.discordBotToken || '');
+  const [channelId, setChannelId] = useState(current.discordChannelId || '');
+  const [botOnline, setBotOnline] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [sendingReport, setSendingReport] = useState(false);
+  const [botLoading, setBotLoading] = useState(false);
+  const [botReportLoading, setBotReportLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.settings.botStatus().then(r => setBotOnline(r.online)).catch(() => { });
+  }, []);
 
   const toggleEvt = (k: keyof typeof events) => setEvents(p => ({ ...p, [k]: !p[k] }));
 
@@ -2210,10 +2375,42 @@ function DiscordSettingsPage({ current, onSave, toast }: {
     { key: 'discordOnReceived', label: 'รับสินค้าแล้ว', desc: 'เมื่อพนักงานกดยืนยันรับสินค้า' },
   ];
 
+  const handleBotToggle = async () => {
+    if (!botToken.trim() && !botOnline) return toast('กรุณากรอก Bot Token ก่อน', 'error');
+    setBotLoading(true);
+    try {
+      if (botOnline) {
+        await api.settings.botStop();
+        setBotOnline(false);
+        toast('ปิด Bot สำเร็จ');
+      } else {
+        // บันทึก token + channel ก่อนเสมอ แล้วค่อย start
+        await api.settings.update({ discordBotToken: botToken, discordChannelId: channelId || null });
+        await api.settings.botStart();
+        setBotOnline(true);
+        toast('เชื่อมต่อ Bot สำเร็จ');
+      }
+    } catch (e: any) { toast(e.message || 'เกิดข้อผิดพลาด — ตรวจสอบ Bot Token อีกครั้ง', 'error'); }
+    finally { setBotLoading(false); }
+  };
+
+  const handleBotReport = async () => {
+    setBotReportLoading(true);
+    try {
+      await api.settings.botReport();
+      toast('ส่งรายงานพร้อมปุ่มไปยัง Discord สำเร็จ');
+    } catch (e: any) { toast(e.message || 'ส่งไม่สำเร็จ', 'error'); }
+    finally { setBotReportLoading(false); }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updated = await api.settings.update({ discordWebhook: webhook || null, ...events });
+      const updated = await api.settings.update({
+        discordWebhook: webhook || null, ...events,
+        discordReportEnabled: reportEnabled, discordReportTime: reportTime,
+        discordBotToken: botToken || null, discordChannelId: channelId || null,
+      });
       onSave(updated);
       toast('บันทึกการตั้งค่า Discord สำเร็จ');
     } catch (e: any) { toast(e.message || 'เกิดข้อผิดพลาด', 'error'); }
@@ -2230,25 +2427,35 @@ function DiscordSettingsPage({ current, onSave, toast }: {
     finally { setTesting(false); }
   };
 
+  const handleSendReport = async () => {
+    if (!webhook.trim()) return toast('กรุณากรอก Webhook URL ก่อน', 'error');
+    setSendingReport(true);
+    try {
+      await api.settings.sendReport();
+      toast('ส่งรายงานสรุปไปยัง Discord สำเร็จ');
+    } catch (e: any) { toast(e.message || 'ส่งไม่สำเร็จ', 'error'); }
+    finally { setSendingReport(false); }
+  };
+
   return (
     <div className="page-anim max-w-xl flex flex-col gap-5">
+      {/* Webhook URL */}
       <Card title="Discord Webhook">
         <div className="p-5 flex flex-col gap-4">
           <div>
-            <div className="text-xs text-slate-500 mb-1">วิธีรับ Webhook URL: Discord → ช่องที่ต้องการ → Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL</div>
+            <div className="text-xs text-slate-500 mb-1">Discord → ช่องที่ต้องการ → Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL</div>
             <Input label="Webhook URL *" value={webhook} onChange={e => setWebhook(e.target.value)} placeholder="https://discord.com/api/webhooks/..." />
           </div>
-          <div className="flex gap-2">
-            <button onClick={handleTest} disabled={testing || !webhook.trim()}
-              className="flex items-center gap-1.5 px-4 py-2 border border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors disabled:opacity-50">
-              {testing ? <RefreshCw size={12} className="animate-spin" /> : <MessageSquare size={12} />}
-              ทดสอบส่งข้อความ
-            </button>
-          </div>
+          <button onClick={handleTest} disabled={testing || !webhook.trim()}
+            className="self-start flex items-center gap-1.5 px-4 py-2 border border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors disabled:opacity-50">
+            {testing ? <RefreshCw size={12} className="animate-spin" /> : <MessageSquare size={12} />}
+            ทดสอบส่งข้อความ
+          </button>
         </div>
       </Card>
 
-      <Card title="เลือก Event ที่จะแจ้งเตือน">
+      {/* Event toggles */}
+      <Card title="แจ้งเตือน Event">
         <div className="divide-y divide-slate-50 dark:divide-slate-800">
           {eventList.map(ev => (
             <div key={ev.key} className="flex items-center justify-between px-5 py-3.5">
@@ -2256,12 +2463,89 @@ function DiscordSettingsPage({ current, onSave, toast }: {
                 <div className="text-sm font-medium text-slate-700 dark:text-slate-200">{ev.label}</div>
                 <div className="text-xs text-slate-400 mt-0.5">{ev.desc}</div>
               </div>
-              <button onClick={() => toggleEvt(ev.key)}
-                className={`relative w-11 h-6 rounded-full transition-colors ${events[ev.key] ? 'bg-indigo-500' : 'bg-slate-200 dark:bg-slate-700'}`}>
-                <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${events[ev.key] ? 'left-6' : 'left-1'}`} />
-              </button>
+              <Toggle on={events[ev.key]} onToggle={() => toggleEvt(ev.key)} />
             </div>
           ))}
+        </div>
+      </Card>
+
+      {/* Daily report */}
+      <Card title="รายงานสรุปสำหรับหัวหน้า">
+        <div className="divide-y divide-slate-50 dark:divide-slate-800">
+          <div className="flex items-center justify-between px-5 py-3.5">
+            <div>
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-200">ส่งรายงานอัตโนมัติ</div>
+              <div className="text-xs text-slate-400 mt-0.5">ยอดภาพรวม / สถานะ / ค้างดำเนินการ ส่งทุกวันตามเวลาที่กำหนด</div>
+            </div>
+            <Toggle on={reportEnabled} onToggle={() => setReportEnabled(p => !p)} />
+          </div>
+          {reportEnabled && (
+            <div className="flex items-center gap-3 px-5 py-3.5">
+              <div className="text-sm text-slate-600 dark:text-slate-300">ส่งทุกวันเวลา</div>
+              <input type="time" value={reportTime} onChange={e => setReportTime(e.target.value)}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20" />
+              <span className="text-xs text-slate-400">น. (เวลาประเทศไทย)</span>
+            </div>
+          )}
+          <div className="px-5 py-3.5">
+            <button onClick={handleSendReport} disabled={sendingReport || !webhook.trim()}
+              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors disabled:opacity-50">
+              {sendingReport ? <RefreshCw size={12} className="animate-spin" /> : <Download size={12} />}
+              ส่งรายงานตอนนี้เลย
+            </button>
+            <div className="text-xs text-slate-400 mt-1.5">ส่งยอดสรุป ณ ขณะนี้ไปยัง Discord ทันที</div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Discord Bot */}
+      <Card title="Discord Bot (Interactive)">
+        <div className="p-5 flex flex-col gap-4">
+          {/* Status */}
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${botOnline ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              {botOnline ? 'Bot ออนไลน์ — พร้อมรับคำสั่ง' : 'Bot ออฟไลน์'}
+            </span>
+            <button onClick={handleBotToggle} disabled={botLoading}
+              className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${botOnline ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100' : 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 hover:bg-green-100'}`}>
+              {botLoading ? <RefreshCw size={11} className="animate-spin" /> : null}
+              {botOnline ? 'ปิด Bot' : 'เปิด Bot'}
+            </button>
+          </div>
+
+          {/* Token */}
+          <div>
+            <div className="text-xs text-slate-500 mb-1">
+              วิธีสร้าง Bot: <span className="font-medium">discord.com/developers/applications</span> → New Application → Bot → Reset Token → Copy
+            </div>
+            <Input label="Bot Token *" value={botToken} onChange={e => setBotToken(e.target.value)}
+              placeholder="MTxxxxxxxxxxxxxxxxxxxxxxxx.Xxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              type="password" />
+          </div>
+
+          {/* Channel ID */}
+          <div>
+            <div className="text-xs text-slate-500 mb-1">วิธีดู Channel ID: Discord (Developer Mode) → คลิกขวาที่ช่อง → Copy Channel ID</div>
+            <Input label="Channel ID *" value={channelId} onChange={e => setChannelId(e.target.value)}
+              placeholder="1234567890123456789" />
+          </div>
+
+          {/* Permissions note */}
+          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2.5 border border-amber-100 dark:border-amber-800">
+            <AlertCircle size={12} className="shrink-0 mt-0.5" />
+            <span>Bot ต้องมีสิทธิ์ <strong>Send Messages</strong> และ <strong>Use Application Commands</strong> ในช่องนั้น รวมถึง Scopes: <strong>bot</strong></span>
+          </div>
+
+          {/* Send report with buttons */}
+          <div className="border-t border-slate-100 dark:border-slate-700 pt-3">
+            <button onClick={handleBotReport} disabled={botReportLoading || !botOnline || !channelId.trim()}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50">
+              {botReportLoading ? <RefreshCw size={12} className="animate-spin" /> : <MessageSquare size={12} />}
+              ส่งรายงานพร้อมปุ่มไปยัง Discord
+            </button>
+            <div className="text-xs text-slate-400 mt-1.5">Bot จะส่ง embed พร้อมปุ่ม รีเฟรช / รายการค้าง / เกินกำหนด</div>
+          </div>
         </div>
       </Card>
 

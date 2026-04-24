@@ -4,7 +4,8 @@ import { prisma } from '../lib/prisma.js'
 import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { parseBody } from '../lib/validate.js'
 import nodemailer from 'nodemailer'
-import { discordTest } from '../lib/discord.js'
+import { discordTest, discordDailyReport, type ReportData } from '../lib/discord.js'
+import { startBot, sendReportToChannel, isBotOnline, stopBot } from '../lib/bot.js'
 
 const router = new Hono()
 
@@ -19,6 +20,10 @@ const updateSettingsSchema = z.object({
   discordOnTransferred: z.boolean().optional(),
   discordOnRejected: z.boolean().optional(),
   discordOnReceived: z.boolean().optional(),
+  discordReportEnabled: z.boolean().optional(),
+  discordReportTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  discordBotToken: z.string().max(100).nullable().optional(),
+  discordChannelId: z.string().max(30).nullable().optional(),
 })
 
 const ensureSettings = () =>
@@ -63,6 +68,10 @@ router.put('/', authMiddleware, requireRole('itsupport'), async (c) => {
       discordOnTransferred: body.discordOnTransferred ?? undefined,
       discordOnRejected: body.discordOnRejected ?? undefined,
       discordOnReceived: body.discordOnReceived ?? undefined,
+      discordReportEnabled: body.discordReportEnabled ?? undefined,
+      discordReportTime: body.discordReportTime ?? undefined,
+      discordBotToken: body.discordBotToken ?? undefined,
+      discordChannelId: body.discordChannelId ?? undefined,
       updatedBy: user.id,
       updatedByName: user.name,
     },
@@ -110,6 +119,77 @@ router.post('/test-email', authMiddleware, requireRole('itsupport'), async (c) =
     return c.json({ ok: true, sentTo: toEmail })
   } catch (err: any) {
     return c.json({ error: err.message || 'ส่งอีเมลไม่สำเร็จ' }, 500)
+  }
+})
+
+// helper — build report data from DB
+export async function buildReportData(siteName: string): Promise<ReportData> {
+  const requests = await prisma.purchaseRequest.findMany({ select: { status: true, totalAmount: true, dueDate: true } })
+  const today = new Date().toISOString().slice(0, 10)
+  const count = (s: string) => requests.filter(r => r.status === s).length
+  const sum = (s: string) => requests.filter(r => r.status === s).reduce((a, r) => a + r.totalAmount, 0)
+  const inProg = ['pending', 'purchasing', 'accounting', 'transferred']
+  return {
+    siteName,
+    total: requests.length,
+    pending: count('pending'), purchasing: count('purchasing'),
+    accounting: count('accounting'), transferred: count('transferred'),
+    received: count('received'), rejected: count('rejected'),
+    totalAmount: requests.reduce((a, r) => a + r.totalAmount, 0),
+    transferredAmount: sum('transferred') + sum('received'),
+    inProgressAmount: inProg.reduce((a, s) => a + sum(s), 0),
+    overdueCount: requests.filter(r => inProg.includes(r.status) && r.dueDate && r.dueDate < today).length,
+  }
+}
+
+// GET /api/settings/bot-status
+router.get('/bot-status', authMiddleware, requireRole('itsupport'), (c) => {
+  return c.json({ online: isBotOnline() })
+})
+
+// POST /api/settings/bot-start — (re)start bot with current token
+router.post('/bot-start', authMiddleware, requireRole('itsupport'), async (c) => {
+  const s = await ensureSettings()
+  if (!s.discordBotToken) return c.json({ error: 'ยังไม่ได้ตั้งค่า Bot Token' }, 400)
+  try {
+    await startBot(s.discordBotToken)
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ error: e.message || 'เชื่อมต่อ Bot ไม่สำเร็จ — ตรวจสอบ Token อีกครั้ง' }, 500)
+  }
+})
+
+// POST /api/settings/bot-stop
+router.post('/bot-stop', authMiddleware, requireRole('itsupport'), async (c) => {
+  await stopBot()
+  return c.json({ ok: true })
+})
+
+// POST /api/settings/bot-report — ส่งรายงานพร้อมปุ่มผ่าน Bot
+router.post('/bot-report', authMiddleware, requireRole('itsupport'), async (c) => {
+  const s = await ensureSettings()
+  if (!s.discordBotToken) return c.json({ error: 'ยังไม่ได้ตั้งค่า Bot Token' }, 400)
+  if (!s.discordChannelId) return c.json({ error: 'ยังไม่ได้ตั้งค่า Channel ID' }, 400)
+  try {
+    const data = await buildReportData(s.siteName)
+    await sendReportToChannel(s.discordChannelId, data)
+    return c.json({ ok: true })
+  } catch (e: any) {
+    console.error('[bot-report] error:', e.message, e.code ?? '')
+    return c.json({ error: e.message || 'ส่งรายงานไม่สำเร็จ' }, 500)
+  }
+})
+
+// POST /api/settings/discord-report — ส่งรายงานสรุปไป Discord ทันที
+router.post('/discord-report', authMiddleware, requireRole('itsupport'), async (c) => {
+  const s = await ensureSettings()
+  if (!s.discordWebhook) return c.json({ error: 'ยังไม่ได้ตั้งค่า Discord Webhook URL' }, 400)
+  try {
+    const data = await buildReportData(s.siteName)
+    await discordDailyReport(s.discordWebhook, data)
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ error: e.message || 'ส่งรายงานไม่สำเร็จ' }, 500)
   }
 })
 

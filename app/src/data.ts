@@ -15,7 +15,7 @@ export interface PurchaseRequest {
   id: string;
   reqNo: string;
   title: string;
-  items: { code: string; name: string; qty: number; unit: string; price: number; itemNote: string }[];
+  items?: { code: string; name: string; qty: number; unit: string; price: number; itemNote: string }[];
   totalAmount: number;
   reason: string;
   category: string;

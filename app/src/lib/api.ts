@@ -33,6 +33,17 @@ export const api = {
     update: (id: string, data: unknown) => req<any>('PUT', `/api/requests/${id}`, data),
     updateStatus: (id: string, data: unknown) =>
       req<any>('PATCH', `/api/requests/${id}/status`, data),
+    exportExcel: async (status?: string) => {
+      const url = `${BASE_URL}/api/requests/export${status ? `?status=${status}` : ''}`
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
+      if (!res.ok) throw new Error('Export ไม่สำเร็จ')
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `purchase-report-${new Date().toISOString().slice(0, 10)}.xlsx`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    },
   },
   users: {
     list: () => req<any[]>('GET', '/api/users'),
@@ -52,6 +63,11 @@ export const api = {
     update: (data: object) => req<any>('PUT', '/api/settings', data),
     testEmail: () => req<{ ok: boolean; sentTo: string }>('POST', '/api/settings/test-email', {}),
     testDiscord: (webhook?: string) => req<{ ok: boolean }>('POST', '/api/settings/test-discord', { webhook }),
+    sendReport: () => req<{ ok: boolean }>('POST', '/api/settings/discord-report', {}),
+    botStatus: () => req<{ online: boolean }>('GET', '/api/settings/bot-status'),
+    botStart: () => req<{ ok: boolean }>('POST', '/api/settings/bot-start', {}),
+    botStop: () => req<{ ok: boolean }>('POST', '/api/settings/bot-stop', {}),
+    botReport: () => req<{ ok: boolean }>('POST', '/api/settings/bot-report', {}),
   },
   files: {
     upload: async (file: File): Promise<{ url: string; name: string }> => {

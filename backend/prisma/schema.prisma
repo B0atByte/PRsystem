@@ -71,6 +71,10 @@ model PurchaseRequest {
   items   PurchaseItem[]
   creator User           @relation(fields: [createdBy], references: [id])
 
+  @@index([status])
+  @@index([createdBy])
+  @@index([updatedAt])
+  @@index([dueDate])
   @@map("purchase_requests")
 }
 
@@ -125,6 +129,10 @@ model Settings {
   discordOnTransferred  Boolean  @default(true)
   discordOnRejected     Boolean  @default(true)
   discordOnReceived     Boolean  @default(true)
+  discordReportEnabled  Boolean  @default(false)
+  discordReportTime     String   @default("08:00")
+  discordBotToken       String?  @db.Text
+  discordChannelId      String?
 
   @@map("settings")
 }
