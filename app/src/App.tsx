@@ -307,6 +307,125 @@ function PageLoader({ loading }: { loading: boolean }) {
   );
 }
 
+// ─── Skeleton Loading ─────────────────────────────────────────────
+function Sk({ className = '' }: { className?: string }) {
+  return <div className={`skeleton ${className}`} />;
+}
+
+function SkeletonPage({ page }: { page: Page }) {
+  // skeleton สำหรับหน้าที่มี list การ์ด
+  const listSkeleton = (rows = 5) => (
+    <div className="page-anim space-y-4">
+      <div className="flex items-center justify-between mb-2">
+        <Sk className="h-7 w-48" />
+        <Sk className="h-9 w-32 rounded-xl" />
+      </div>
+      <div className="flex gap-3 mb-2">
+        <Sk className="h-9 flex-1 max-w-xs rounded-xl" />
+        <Sk className="h-9 w-32 rounded-xl" />
+      </div>
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex gap-4">
+          {['w-24','w-32','w-20','w-28','w-16'].map((w,i) => <Sk key={i} className={`h-4 ${w}`} />)}
+        </div>
+        {Array.from({length: rows}).map((_,i) => (
+          <div key={i} className="px-4 py-3 border-b border-slate-50 dark:border-slate-800/50 flex gap-4 items-center">
+            <Sk className="h-4 w-24" />
+            <Sk className="h-4 w-40 flex-1" />
+            <Sk className="h-4 w-20" />
+            <Sk className="h-6 w-24 rounded-full" />
+            <Sk className="h-4 w-16" />
+            <Sk className="h-7 w-16 rounded-lg" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // skeleton dashboard
+  const dashSkeleton = () => (
+    <div className="page-anim space-y-5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {Array.from({length: 4}).map((_,i) => (
+          <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 space-y-3">
+            <div className="flex items-center justify-between">
+              <Sk className="h-4 w-20" />
+              <Sk className="h-8 w-8 rounded-xl" />
+            </div>
+            <Sk className="h-8 w-16" />
+            <Sk className="h-3 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {[6,4].map((rows,j) => (
+          <div key={j} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 space-y-3">
+            <Sk className="h-5 w-32" />
+            {Array.from({length: rows}).map((_,i) => (
+              <div key={i} className="flex gap-3 items-center">
+                <Sk className="h-8 w-8 rounded-xl shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Sk className="h-3 w-3/4" />
+                  <Sk className="h-3 w-1/2" />
+                </div>
+                <Sk className="h-5 w-16 rounded-full" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // skeleton form
+  const formSkeleton = () => (
+    <div className="page-anim max-w-2xl space-y-4">
+      <Sk className="h-7 w-48 mb-4" />
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-5 space-y-4">
+        {Array.from({length: 6}).map((_,i) => (
+          <div key={i} className="space-y-1.5">
+            <Sk className="h-3 w-24" />
+            <Sk className="h-10 w-full rounded-xl" />
+          </div>
+        ))}
+        <div className="flex gap-3 pt-2">
+          <Sk className="h-10 flex-1 rounded-xl" />
+          <Sk className="h-10 w-24 rounded-xl" />
+        </div>
+      </div>
+    </div>
+  );
+
+  // skeleton settings / audit (wide content)
+  const settingsSkeleton = () => (
+    <div className="page-anim space-y-4">
+      <Sk className="h-7 w-48" />
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-5 space-y-5">
+        {Array.from({length: 5}).map((_,i) => (
+          <div key={i} className="flex items-center justify-between gap-4">
+            <div className="space-y-1.5 flex-1">
+              <Sk className="h-4 w-32" />
+              <Sk className="h-3 w-56" />
+            </div>
+            <Sk className="h-10 w-48 rounded-xl" />
+          </div>
+        ))}
+        <Sk className="h-10 w-36 rounded-xl" />
+      </div>
+    </div>
+  );
+
+  switch (page) {
+    case 'dashboard':        return dashSkeleton();
+    case 'create-request':
+    case 'add-user':         return formSkeleton();
+    case 'site-settings':
+    case 'discord-settings':
+    case 'audit-log':        return settingsSkeleton();
+    default:                 return listSkeleton();
+  }
+}
+
 // ─── File Upload Field ────────────────────────────────────────────────────────
 function FileUploadField({ label, fileName, onFile, onError }: {
   label: string; fileName: string;
@@ -2944,8 +3063,8 @@ export default function App() {
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Topbar page={page} user={currentUser} requests={requests} onLogout={handleLogout} collapsed={collapsed} setCollapsed={setCollapsed} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
-        <main className={`flex-1 overflow-y-auto p-5 sm:p-6 transition-opacity duration-200 ${isLoading ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-          {renderPage()}
+        <main className="flex-1 overflow-y-auto p-5 sm:p-6">
+          {isLoading ? <SkeletonPage page={page} /> : renderPage()}
         </main>
       </div>
 
