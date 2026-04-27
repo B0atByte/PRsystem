@@ -1562,8 +1562,12 @@ function PendingApprovalPage({ requests, onIssuePRPO, onReject, onView }: { requ
   );
 }
 
-function IssuePRPOPage({ requests, onIssue, toast }: { requests: PurchaseRequest[]; onIssue: (id: string, prFile: string, poFile: string, notes: string) => void; toast: (m: string, t?: Toast['type']) => void }) {
-  const avail = requests.filter(r => r.status === 'pending');
+function IssuePRPOPage({ requests, onIssue, toast }: { requests: PurchaseRequest[]; onIssue: (id: string, prFile: string, poFile: string, notes: string, isDraft?: boolean) => void; toast: (m: string, t?: Toast['type']) => void }) {
+  // แสดง pending + purchasing draft (ไฟล์ไม่ครบ)
+  const avail = requests.filter(r =>
+    r.status === 'pending' ||
+    (r.status === 'purchasing' && (!r.prFile || !r.poFile))
+  );
   const [selId, setSelId] = useState('');
   const [prFile, setPrFile] = useState('');
   const [prFileUrl, setPrFileUrl] = useState('');
@@ -1571,12 +1575,28 @@ function IssuePRPOPage({ requests, onIssue, toast }: { requests: PurchaseRequest
   const [poFileUrl, setPoFileUrl] = useState('');
   const [notes, setNotes] = useState('');
   const sel = avail.find(r => r.id === selId);
+  const isDraft = sel?.status === 'purchasing';
 
-  const handle = () => {
+  // เมื่อเลือกรายการใหม่ reset ไฟล์
+  const handleSelect = (id: string) => {
+    setSelId(id); setPrFile(''); setPrFileUrl(''); setPoFile(''); setPoFileUrl(''); setNotes('');
+  };
+
+  const hasPR = !!(prFileUrl || sel?.prFile);
+  const hasPO = !!(poFileUrl || sel?.poFile);
+
+  const handleSaveDraft = () => {
     if (!selId) return toast('กรุณาเลือกใบขอซื้อ', 'error');
-    if (!prFileUrl) return toast('กรุณาแนบเอกสาร PR', 'error');
-    if (!poFileUrl) return toast('กรุณาแนบเอกสาร PO', 'error');
-    onIssue(selId, prFileUrl, poFileUrl, notes);
+    if (!hasPR && !hasPO) return toast('กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์', 'error');
+    onIssue(selId, prFileUrl, poFileUrl, notes, true);
+    setSelId(''); setPrFile(''); setPrFileUrl(''); setPoFile(''); setPoFileUrl(''); setNotes('');
+  };
+
+  const handleSave = () => {
+    if (!selId) return toast('กรุณาเลือกใบขอซื้อ', 'error');
+    if (!hasPR) return toast('กรุณาแนบเอกสาร PR', 'error');
+    if (!hasPO) return toast('กรุณาแนบเอกสาร PO', 'error');
+    onIssue(selId, prFileUrl || sel?.prFile || '', poFileUrl || sel?.poFile || '', notes, false);
     setSelId(''); setPrFile(''); setPrFileUrl(''); setPoFile(''); setPoFileUrl(''); setNotes('');
   };
 
@@ -1584,33 +1604,68 @@ function IssuePRPOPage({ requests, onIssue, toast }: { requests: PurchaseRequest
     <div className="page-anim max-w-xl">
       <Card title="แนบเอกสาร PR / PO">
         <div className="p-5 flex flex-col gap-4">
-          <Sel label="เลือกใบขอซื้อ" value={selId} onChange={e => setSelId(e.target.value)}>
+          <Sel label="เลือกใบขอซื้อ" value={selId} onChange={e => handleSelect(e.target.value)}>
             <option value="">-- เลือกรายการที่ต้องการ --</option>
-            {avail.map(r => <option key={r.id} value={r.id}>{r.reqNo} — {r.title}</option>)}
+            {avail.filter(r => r.status === 'pending').length > 0 && (
+              <optgroup label="รอดำเนินการ">
+                {avail.filter(r => r.status === 'pending').map(r =>
+                  <option key={r.id} value={r.id}>{r.reqNo} — {r.title}</option>
+                )}
+              </optgroup>
+            )}
+            {avail.filter(r => r.status === 'purchasing').length > 0 && (
+              <optgroup label="แบบร่าง (ไฟล์ไม่ครบ)">
+                {avail.filter(r => r.status === 'purchasing').map(r =>
+                  <option key={r.id} value={r.id}>{r.reqNo} — {r.title} {!r.prFile ? '[ขาด PR]' : ''}{!r.poFile ? '[ขาด PO]' : ''}</option>
+                )}
+              </optgroup>
+            )}
           </Sel>
 
           {sel && (
             <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 text-xs space-y-1.5 border border-slate-100 dark:border-slate-700">
-              <div className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{sel.title}</div>
-              <div className="text-slate-500">ผู้ขอ: {sel.createdByName} · {sel.category}</div>
-              <div className="text-slate-500">จำนวนเงิน: <span className="font-bold text-blue-600 text-sm">฿{fmt(sel.totalAmount)}</span></div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{sel.title}</span>
+                {isDraft && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 px-1.5 py-0.5 rounded-full">แบบร่าง</span>}
+              </div>
+              <div className="text-slate-500">ผู้ขอ: {sel.createdByName} · <span className="font-bold text-blue-600">฿{fmt(sel.totalAmount)}</span></div>
+              {isDraft && (
+                <div className="flex gap-3 pt-1">
+                  <span className={`flex items-center gap-1 font-medium ${sel.prFile ? 'text-green-600' : 'text-red-400'}`}>
+                    {sel.prFile ? <CheckCircle size={11} /> : <XCircle size={11} />} PR
+                  </span>
+                  <span className={`flex items-center gap-1 font-medium ${sel.poFile ? 'text-green-600' : 'text-red-400'}`}>
+                    {sel.poFile ? <CheckCircle size={11} /> : <XCircle size={11} />} PO
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FileUploadField label="เอกสาร PR *" fileName={prFile} onFile={(name, url) => { setPrFile(name); setPrFileUrl(url); }} onError={msg => toast(msg, 'error')} />
-            <FileUploadField label="เอกสาร PO *" fileName={poFile} onFile={(name, url) => { setPoFile(name); setPoFileUrl(url); }} onError={msg => toast(msg, 'error')} />
+            <FileUploadField
+              label={sel?.prFile ? 'เอกสาร PR (มีแล้ว — อัปโหลดใหม่เพื่อแทนที่)' : 'เอกสาร PR *'}
+              fileName={prFile}
+              onFile={(name, url) => { setPrFile(name); setPrFileUrl(url); }}
+              onError={msg => toast(msg, 'error')} />
+            <FileUploadField
+              label={sel?.poFile ? 'เอกสาร PO (มีแล้ว — อัปโหลดใหม่เพื่อแทนที่)' : 'เอกสาร PO *'}
+              fileName={poFile}
+              onFile={(name, url) => { setPoFile(name); setPoFileUrl(url); }}
+              onError={msg => toast(msg, 'error')} />
           </div>
           <Textarea label="หมายเหตุ" value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="หมายเหตุเพิ่มเติม..." />
 
-          <div className="flex items-start gap-2.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-100 dark:border-amber-800">
-            <AlertCircle size={13} className="shrink-0 mt-0.5" />
-            <span>เมื่อแนบเอกสารแล้ว สถานะจะเปลี่ยนเป็น "รอฝ่ายบัญชี" โดยอัตโนมัติ</span>
+          <div className="flex gap-2">
+            <button onClick={handleSaveDraft}
+              className="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2.5 rounded-xl transition-colors text-sm hover:bg-slate-200 dark:hover:bg-slate-600">
+              บันทึกแบบร่าง
+            </button>
+            <button onClick={handleSave} disabled={!hasPR || !hasPO}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+              <FileCheck size={15} />บันทึกครบ ✓
+            </button>
           </div>
-
-          <button onClick={handle} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
-            <FileCheck size={15} />ยืนยันและส่งต่อบัญชี
-          </button>
         </div>
       </Card>
     </div>
