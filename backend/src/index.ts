@@ -17,7 +17,12 @@ import settings from './routes/settings.js'
 const app = new Hono()
 
 app.use('*', cors({
-  origin: ['http://localhost:5173', 'http://localhost:3456'],
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3456',
+    'http://10.29.112.35:5173',
+    'http://10.29.112.35:3456',
+  ],
   credentials: true,
 }))
 app.use('*', logger())

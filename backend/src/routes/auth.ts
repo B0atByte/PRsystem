@@ -3,8 +3,9 @@ import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../lib/prisma.js'
 import { signToken } from '../lib/jwt.js'
-import { authMiddleware } from '../middleware/auth.js'
+import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { parseBody } from '../lib/validate.js'
+import { getClientIp, isLocked, recordFailure, recordSuccess, unlockIp, getLockedIps } from '../lib/rateLimiter.js'
 
 const auth = new Hono()
 
@@ -14,24 +15,51 @@ const loginSchema = z.object({
 })
 
 auth.post('/login', async (c) => {
+  const ip = getClientIp(c)
+
+  if (isLocked(ip)) {
+    return c.json({ error: 'IP นี้ถูกล็อกชั่วคราว เนื่องจากพยายาม login ผิดเกินกำหนด กรุณาติดต่อ IT Support' }, 429)
+  }
+
   const result = await parseBody(c, loginSchema)
   if (!(result as any).data) return result as unknown as Response
   const { username, password } = (result as any).data
 
   const user = await prisma.user.findUnique({ where: { username } })
   if (!user || !user.active) {
-    return c.json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, 401)
+    const { locked, remaining } = recordFailure(ip)
+    const msg = locked
+      ? 'IP ถูกล็อกแล้ว เนื่องจากพยายาม login ผิดเกินกำหนด กรุณาติดต่อ IT Support'
+      : `ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (เหลืออีก ${remaining} ครั้ง)`
+    return c.json({ error: msg }, locked ? 429 : 401)
   }
 
   const valid = await bcrypt.compare(password, user.password)
   if (!valid) {
-    return c.json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, 401)
+    const { locked, remaining } = recordFailure(ip)
+    const msg = locked
+      ? 'IP ถูกล็อกแล้ว เนื่องจากพยายาม login ผิดเกินกำหนด กรุณาติดต่อ IT Support'
+      : `ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง (เหลืออีก ${remaining} ครั้ง)`
+    return c.json({ error: msg }, locked ? 429 : 401)
   }
 
+  recordSuccess(ip)
   const token = signToken({ id: user.id, role: user.role, name: user.name })
   const { password: _, ...userData } = user
-
   return c.json({ token, user: userData })
+})
+
+// GET /api/auth/locked-ips — itsupport ดู IP ที่ถูกล็อก
+auth.get('/locked-ips', authMiddleware, requireRole('itsupport'), (c) => {
+  return c.json(getLockedIps())
+})
+
+// DELETE /api/auth/locked-ips/:ip — itsupport ปลดล็อก IP
+auth.delete('/locked-ips/:ip', authMiddleware, requireRole('itsupport'), (c) => {
+  const ip = decodeURIComponent(c.req.param('ip'))
+  const ok = unlockIp(ip)
+  if (!ok) return c.json({ error: 'ไม่พบ IP นี้ในรายการล็อก' }, 404)
+  return c.json({ ok: true, message: `ปลดล็อก ${ip} แล้ว` })
 })
 
 auth.get('/me', authMiddleware, async (c) => {

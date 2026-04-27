@@ -204,7 +204,7 @@ requests.get('/export', async (c) => {
   ws2.views = [{ state: 'frozen', ySplit: 1 }]
 
   const buf = await wb.xlsx.writeBuffer()
-  return new Response(buf as Buffer, {
+  return new Response(buf as unknown as BodyInit, {
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="purchase-report-${new Date().toISOString().slice(0, 10)}.xlsx"`,

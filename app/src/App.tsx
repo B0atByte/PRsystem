@@ -3089,6 +3089,66 @@ function DiscordSettingsPage({ current, onSave, toast }: {
   );
 }
 
+// ─── IP Lock Manager ────────────────────────────────────────────────
+function IpLockCard({ toast }: { toast: (m: string, t?: Toast['type']) => void }) {
+  const [locked, setLocked] = useState<{ ip: string; count: number; lockedAt: string; lastAttempt: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [unlocking, setUnlocking] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await api.auth.getLockedIps();
+      setLocked(data);
+    } catch { }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleUnlock = async (ip: string) => {
+    setUnlocking(ip);
+    try {
+      await api.auth.unlockIp(ip);
+      toast(`ปลดล็อก ${ip} สำเร็จ`, 'success');
+      setLocked(p => p.filter(r => r.ip !== ip));
+    } catch (err: any) { toast(err.message || 'เกิดข้อผิดพลาด', 'error'); }
+    finally { setUnlocking(''); }
+  };
+
+  return (
+    <Card title="จัดการ IP ที่ถูกล็อก (Login ผิดเกิน 5 ครั้ง)">
+      <div className="p-5 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-slate-400">IP ที่ถูกล็อกเนื่องจาก login ผิดเกิน 5 ครั้ง</p>
+          <button onClick={load} disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />รีเฟรช
+          </button>
+        </div>
+        {locked.length === 0 ? (
+          <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-100 dark:border-green-800 text-xs text-green-600 dark:text-green-400">
+            <CheckCircle size={14} />ไม่มี IP ที่ถูกล็อกอยู่
+          </div>
+        ) : locked.map(r => (
+          <div key={r.ip} className="flex items-center justify-between gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800">
+            <div className="min-w-0">
+              <div className="text-sm font-mono font-semibold text-red-700 dark:text-red-400">{r.ip}</div>
+              <div className="text-[11px] text-slate-400 mt-0.5">
+                พยายาม {r.count} ครั้ง · ล็อกเมื่อ {new Date(r.lockedAt).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}
+              </div>
+            </div>
+            <button onClick={() => handleUnlock(r.ip)} disabled={unlocking === r.ip}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white rounded-lg text-xs font-semibold transition-colors shrink-0">
+              <KeyRound size={12} />{unlocking === r.ip ? 'กำลังปลด...' : 'ปลดล็อก'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 // SITE SETTINGS PAGE
 // ═══════════════════════════════════════════════════════════════════
 function SiteSettingsPage({ current, onSave, toast }: {
@@ -3195,6 +3255,9 @@ function SiteSettingsPage({ current, onSave, toast }: {
           </div>
         </div>
       </Card>
+
+      {/* IP Lock Manager */}
+      <IpLockCard toast={toast} />
 
       {/* Test Email Card */}
       <Card title="ทดสอบระบบอีเมล">

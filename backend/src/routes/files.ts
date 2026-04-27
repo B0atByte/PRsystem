@@ -46,15 +46,15 @@ router.post('/', authMiddleware, async (c) => {
   }
 
   const baseName = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  let buffer = Buffer.from(await file.arrayBuffer())
+  let buffer: Buffer = Buffer.from(await file.arrayBuffer())
   let savedExt = ext
 
   // compress รูปภาพทุกประเภทเป็น WebP อัตโนมัติ (ยกเว้น GIF)
   if (IMAGE_EXTENSIONS.has(ext) && ext !== '.gif') {
-    buffer = await sharp(buffer)
+    buffer = Buffer.from(await sharp(buffer)
       .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 82 })
-      .toBuffer()
+      .toBuffer())
     savedExt = '.webp'
   }
 
