@@ -60,6 +60,7 @@ export const api = {
   },
   settings: {
     get: () => req<any>('GET', '/api/settings'),
+    getSecure: () => req<any>('GET', '/api/settings/secure'),
     update: (data: object) => req<any>('PUT', '/api/settings', data),
     testEmail: () => req<{ ok: boolean; sentTo: string }>('POST', '/api/settings/test-email', {}),
     testDiscord: (webhook?: string) => req<{ ok: boolean }>('POST', '/api/settings/test-discord', { webhook }),

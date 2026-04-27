@@ -2887,6 +2887,12 @@ function DiscordSettingsPage({ current, onSave, toast }: {
 
   useEffect(() => {
     api.settings.botStatus().then(r => setBotOnline(r.online)).catch(() => { });
+    // โหลด secure settings เพื่อดึง webhook/token ที่ซ่อนจาก public endpoint
+    api.settings.getSecure().then(s => {
+      if (s.discordWebhook) setWebhook(s.discordWebhook);
+      if (s.discordBotToken) setBotToken(s.discordBotToken);
+      if (s.discordChannelId) setChannelId(s.discordChannelId);
+    }).catch(() => { });
   }, []);
 
   const toggleEvt = (k: keyof typeof events) => setEvents(p => ({ ...p, [k]: !p[k] }));
