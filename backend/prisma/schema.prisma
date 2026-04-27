@@ -41,6 +41,7 @@ model PurchaseRequest {
   category      String
   categories    String        @db.Text
   totalAmount   Float
+  vatAmount     Float?
   supplierName  String
   supplierName2 String?
   paymentMethod PaymentMethod
@@ -62,7 +63,8 @@ model PurchaseRequest {
   transferFile  String?   @db.Text
   deliveryNote  String?   @db.Text
   taxInvoice    String?   @db.Text
-  receivedAt    String?
+  receivedAt      String?
+  productPhotos   String?  @db.Text
   createdBy     String
   createdByName String
   createdAt     DateTime      @default(now())

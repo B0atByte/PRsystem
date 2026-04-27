@@ -17,6 +17,7 @@ export interface PurchaseRequest {
   title: string;
   items?: { code: string; name: string; qty: number; unit: string; price: number; itemNote: string }[];
   totalAmount: number;
+  vatAmount?: number;
   reason: string;
   category: string;
   categories: string[];          // checkboxes ผัก/เนื้อ/หมู/ไก่/ซอส/เครื่องดื่ม/เครื่องเทศ
@@ -45,6 +46,7 @@ export interface PurchaseRequest {
   deliveryNote?: string;
   taxInvoice?: string;
   receivedAt?: string;
+  productPhotos?: string;
   notes?: string;
 }
 

@@ -1014,6 +1014,30 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
   const [receivedAt, setReceivedAt] = useState(today());
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoRef = React.useRef<HTMLInputElement>(null);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    if (photoUrls.length + files.length > 4) return toast('อัปโหลดได้สูงสุด 4 รูปเท่านั้น', 'error');
+    setPhotoUploading(true);
+    try {
+      const uploaded: string[] = [];
+      for (const file of files) {
+        const form = new FormData();
+        form.append('file', file);
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/files', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+        if (!res.ok) throw new Error('อัปโหลดรูปไม่สำเร็จ');
+        const data = await res.json();
+        uploaded.push(data.url);
+      }
+      setPhotoUrls(prev => [...prev, ...uploaded]);
+    } catch (err: any) { toast(err.message || 'อัปโหลดรูปไม่สำเร็จ', 'error'); }
+    finally { setPhotoUploading(false); if (photoRef.current) photoRef.current.value = ''; }
+  };
 
   const handleSave = async () => {
     if (!deliveryFileUrl) return toast('กรุณาแนบใบส่งของ', 'error');
@@ -1025,6 +1049,7 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
         deliveryNote: deliveryFileUrl,
         taxInvoice: taxFileUrl,
         receivedAt,
+        productPhotos: photoUrls.length ? JSON.stringify(photoUrls) : undefined,
         notes: notes || undefined,
       });
       onSaved(updated);
@@ -1055,6 +1080,37 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
           onFile={(name, url) => { setTaxFile(name); setTaxFileUrl(url); }}
           onError={msg => toast(msg, 'error')} />
         <Input label="วันที่รับสินค้า" type="date" value={receivedAt} onChange={e => setReceivedAt(e.target.value)} />
+
+        {/* รูปสินค้า */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">รูปภาพสินค้า (ไม่เกิน 4 รูป)</label>
+            <span className="text-xs text-slate-400">{photoUrls.length}/4</span>
+          </div>
+          {photoUrls.length > 0 && (
+            <div className="grid grid-cols-4 gap-2">
+              {photoUrls.map((url, i) => (
+                <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+                  <img src={url} alt={`สินค้า ${i + 1}`} className="w-full h-full object-cover" />
+                  <button onClick={() => setPhotoUrls(p => p.filter((_, idx) => idx !== i))}
+                    className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white rounded-lg">
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {photoUrls.length < 4 && (
+            <>
+              <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload} />
+              <button onClick={() => photoRef.current?.click()} disabled={photoUploading}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 dark:text-slate-400 hover:border-blue-400 hover:text-blue-500 dark:hover:border-blue-500 dark:hover:text-blue-400 transition-colors disabled:opacity-50">
+                <Upload size={15} />{photoUploading ? 'กำลังอัปโหลด...' : `เลือกรูปภาพ (เหลือ ${4 - photoUrls.length} รูป)`}
+              </button>
+            </>
+          )}
+        </div>
+
         <Textarea label="หมายเหตุ" value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="หมายเหตุเพิ่มเติม..." />
       </div>
     </Modal>
@@ -1180,7 +1236,8 @@ function RadioGroup({ options, value, onChange }: { options: { val: string; labe
 
 // ── Create Request Page ──────────────────────────────────────────────────────
 function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Omit<PurchaseRequest, 'id' | 'reqNo' | 'createdAt' | 'updatedAt'>) => void; toast: (m: string, t?: Toast['type']) => void }) {
-  const [totalAmount, setTotalAmount] = useState('');
+  const [subAmount, setSubAmount] = useState('');
+  const [vatAmount, setVatAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [paymentTiming, setPaymentTiming] = useState('');
   const [orderDate, setOrderDate] = useState(today());
@@ -1192,8 +1249,12 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
   const [reqFileName, setReqFileName] = useState('');
   const [reqFileUrl, setReqFileUrl] = useState('');
 
+  const vat = +vatAmount || 0;
+  const sub = +subAmount || 0;
+  const totalAmount = sub + vat;
+
   const handleReset = () => {
-    setTotalAmount('');
+    setSubAmount(''); setVatAmount('');
     setPaymentMethod(''); setPaymentTiming('');
     setOrderDate(today()); setDeliveryDate(''); setDueDate('');
     setNotes(''); setContactName(user.name); setSignedDate(today());
@@ -1202,13 +1263,13 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
 
   const handleSubmit = () => {
     if (!reqFileUrl) return toast('กรุณาแนบใบขอสั่งซื้อ', 'error');
-    if (!totalAmount || +totalAmount <= 0) return toast('กรุณากรอกยอดเงินทั้งหมด', 'error');
+    if (!subAmount || sub <= 0) return toast('กรุณากรอกยอดเงินก่อน VAT', 'error');
     if (!paymentMethod) return toast('กรุณาเลือกช่องทางการชำระเงิน', 'error');
     if (!paymentTiming) return toast('กรุณาเลือกกำหนดจ่าย', 'error');
     onSave({
       title: `ใบขอซื้อสินค้า ${orderDate}`,
       category: '', categories: [], supplierName: '', supplierName2: '',
-      items: [], totalAmount: +totalAmount, reason: notes,
+      items: [], totalAmount, vatAmount: vat, reason: notes,
       paymentMethod: paymentMethod as any, paymentTiming: paymentTiming as any,
       orderDate, deliveryDate, dueDate, contactName, signedDate,
       requestFile: reqFileUrl,
@@ -1354,18 +1415,40 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
             />
           </div>
 
-          {/* ยอดเงินทั้งหมด */}
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">ยอดเงินทั้งหมด (บาท) *</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium text-sm">฿</span>
-              <input
-                type="number" min="0" step="0.01"
-                value={totalAmount}
-                onChange={e => setTotalAmount(e.target.value)}
-                placeholder="0.00"
-                className="w-full pl-7 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors"
-              />
+          {/* ยอดเงิน */}
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">ยอดเงินก่อน VAT (บาท) *</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium text-sm">฿</span>
+                  <input type="number" min="0" step="0.01" value={subAmount} onChange={e => setSubAmount(e.target.value)} placeholder="0.00"
+                    className="w-full pl-7 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors" />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-500 dark:text-slate-400">ภาษีมูลค่าเพิ่ม VAT (บาท)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium text-sm">฿</span>
+                  <input type="number" min="0" step="0.01" value={vatAmount} onChange={e => setVatAmount(e.target.value)} placeholder="0.00"
+                    className="w-full pl-7 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors" />
+                </div>
+              </div>
+            </div>
+            {/* Summary */}
+            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl px-4 py-3 border border-slate-100 dark:border-slate-700 flex flex-col gap-1.5">
+              <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                <span>ยอดก่อน VAT</span>
+                <span>฿{sub.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                <span>VAT</span>
+                <span>฿{vat.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between text-sm font-bold text-slate-800 dark:text-white border-t border-slate-200 dark:border-slate-600 pt-1.5 mt-0.5">
+                <span>ยอดรวมทั้งสิ้น</span>
+                <span className="text-blue-600">฿{totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
+              </div>
             </div>
           </div>
 
@@ -2117,7 +2200,8 @@ function TrackingPage({ requests, user, onView }: {
 
   const getSteps = (r: PurchaseRequest): { label: string; sub: string; state: StepState }[] => {
     const s = r.status;
-    const done2 = ['accounting', 'transferred', 'received'].includes(s);
+    const donePR = ['accounting', 'transferred', 'received'].includes(s);
+    const donePO = ['accounting', 'transferred', 'received'].includes(s);
     const done3 = ['transferred', 'received'].includes(s);
     return [
       { label: 'สร้างคำขอ', sub: r.createdAt, state: 'done' },
@@ -2127,9 +2211,14 @@ function TrackingPage({ requests, user, onView }: {
         state: s === 'pending' ? 'current' : s === 'rejected' ? 'rejected' : 'done',
       },
       {
-        label: 'ออก PR/PO',
-        sub: done2 ? (r.prNo || r.updatedAt) : s === 'purchasing' ? 'กำลังดำเนินการ' : '—',
+        label: 'ออก PR',
+        sub: donePR ? (r.prNo || '—') : s === 'purchasing' ? 'กำลังดำเนินการ' : '—',
         state: s === 'rejected' || s === 'pending' ? 'pending' : s === 'purchasing' ? 'current' : 'done',
+      },
+      {
+        label: 'ออก PO',
+        sub: donePO ? (r.poNo || '—') : s === 'purchasing' ? 'กำลังดำเนินการ' : '—',
+        state: s === 'rejected' || s === 'pending' ? 'pending' : s === 'purchasing' ? 'current' : donePO ? 'done' : 'pending',
       },
       {
         label: 'โอนเงิน',
@@ -2278,7 +2367,7 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
 
   type StepState = 'done' | 'current' | 'pending' | 'rejected';
   const s = req.status;
-  const done2 = ['accounting', 'transferred', 'received'].includes(s);
+  const donePR = ['accounting', 'transferred', 'received'].includes(s);
   const done3 = ['transferred', 'received'].includes(s);
   const steps: { label: string; sub: string; state: StepState }[] = [
     { label: 'สร้างคำขอ', sub: req.createdAt, state: 'done' },
@@ -2288,9 +2377,14 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
       state: s === 'pending' ? 'current' : s === 'rejected' ? 'rejected' : 'done',
     },
     {
-      label: 'ออก PR/PO',
-      sub: done2 ? (req.prNo || req.updatedAt) : s === 'purchasing' ? 'กำลังดำเนินการ' : '—',
+      label: 'ออก PR',
+      sub: donePR ? (req.prNo || '—') : s === 'purchasing' ? 'กำลังดำเนินการ' : '—',
       state: s === 'rejected' || s === 'pending' ? 'pending' : s === 'purchasing' ? 'current' : 'done',
+    },
+    {
+      label: 'ออก PO',
+      sub: donePR ? (req.poNo || '—') : s === 'purchasing' ? 'กำลังดำเนินการ' : '—',
+      state: s === 'rejected' || s === 'pending' ? 'pending' : s === 'purchasing' ? 'current' : donePR ? 'done' : 'pending',
     },
     {
       label: 'โอนเงิน',
@@ -2433,9 +2527,25 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
           </div>
         )}
         {req.receivedAt && (
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 rounded-xl p-3">
-            <div className="text-[11px] text-green-600 dark:text-green-400 font-medium mb-0.5">รับสินค้าแล้ว</div>
-            <p className="text-slate-600 dark:text-slate-400 text-xs">วันที่รับสินค้า: {req.receivedAt}</p>
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 rounded-xl p-3 space-y-2">
+            <div className="text-[11px] text-green-600 dark:text-green-400 font-medium">รับสินค้าแล้ว — วันที่: {req.receivedAt}</div>
+            {req.productPhotos && (() => {
+              try {
+                const photos: string[] = JSON.parse(req.productPhotos);
+                return photos.length > 0 ? (
+                  <div>
+                    <div className="text-[10px] text-slate-400 mb-1.5">รูปภาพสินค้า</div>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {photos.map((url, i) => (
+                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="aspect-square rounded-lg overflow-hidden border border-green-200 dark:border-green-700 bg-slate-50 dark:bg-slate-800 block hover:opacity-80 transition-opacity">
+                          <img src={url} alt={`สินค้า ${i + 1}`} className="w-full h-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null;
+              } catch { return null; }
+            })()}
           </div>
         )}
       </div>
