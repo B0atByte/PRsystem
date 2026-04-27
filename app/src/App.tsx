@@ -199,14 +199,57 @@ function PieChart({ data }: { data: { label: string; value: number }[] }) {
   );
 }
 
+// ─── Sort hook ───────────────────────────────────────────────────────────────
+type SortDir = 'asc' | 'desc'
+function useSort<T>(init: keyof T | '' = '') {
+  const [key, setKey] = useState<keyof T | ''>(init)
+  const [dir, setDir] = useState<SortDir>('asc')
+  const toggle = (k: keyof T) => {
+    if (key === k) setDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setKey(k); setDir('asc') }
+  }
+  const sort = (data: T[]) => {
+    if (!key) return data
+    return [...data].sort((a, b) => {
+      const av = a[key], bv = b[key]
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av ?? '').localeCompare(String(bv ?? ''), 'th')
+      return dir === 'asc' ? cmp : -cmp
+    })
+  }
+  return { key, dir, toggle, sort }
+}
+
+// ─── Sortable TH ─────────────────────────────────────────────────────────────
+function SortTh({ label, sortKey, current, dir, onSort, className = '' }: {
+  label: string; sortKey: string; current: string; dir: SortDir; onSort: (k: any) => void; className?: string
+}) {
+  const active = current === sortKey
+  return (
+    <th onClick={() => onSort(sortKey)}
+      className={`px-4 py-2.5 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wide cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-colors whitespace-nowrap ${className}`}>
+      <span className="flex items-center gap-1">
+        {label}
+        <span className={`text-[10px] ${active ? 'text-blue-500' : 'text-slate-300 dark:text-slate-600'}`}>
+          {active ? (dir === 'asc' ? '▲' : '▼') : '⇅'}
+        </span>
+      </span>
+    </th>
+  )
+}
+
 // ─── Table wrapper ────────────────────────────────────────────────────────────
-function Table({ headers, rows }: { headers: string[]; rows: React.ReactNode }) {
+function Table({ headers, rows }: { headers: (string | React.ReactNode)[]; rows: React.ReactNode }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-slate-50 dark:bg-slate-800/60">
-            {headers.map((h, i) => <th key={i} className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{h}</th>)}
+            {headers.map((h, i) => typeof h === 'string'
+              ? <th key={i} className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{h}</th>
+              : <React.Fragment key={i}>{h}</React.Fragment>
+            )}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-50 dark:divide-slate-800">{rows}</tbody>
@@ -1120,21 +1163,31 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
 function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { requests: PurchaseRequest[]; user: User; onView: (r: PurchaseRequest) => void; onEdit: (r: PurchaseRequest) => void; onReceive: (r: PurchaseRequest) => void }) {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterCat, setFilterCat] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const mine = requests.filter(r => r.createdBy === user.id)
-    .filter(r => (r.title.toLowerCase().includes(search.toLowerCase()) || r.reqNo.includes(search)) && (!filterStatus || r.status === filterStatus));
+  const { key: sk, dir: sd, toggle: stoggle, sort: ssort } = useSort<PurchaseRequest>('createdAt');
+  const mine = ssort(requests.filter(r => r.createdBy === user.id).filter(r =>
+    (!search || r.title.toLowerCase().includes(search.toLowerCase()) || r.reqNo.includes(search)) &&
+    (!filterStatus || r.status === filterStatus) &&
+    (!filterCat || r.category === filterCat)
+  ));
+  const cats = [...new Set(requests.filter(r => r.createdBy === user.id).map(r => r.category).filter(Boolean))];
   const paged = mine.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <div className="page-anim flex flex-col gap-4">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="flex-1 min-w-[180px] max-w-xs"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} /></div>
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
-          className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุกสถานะ</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
+        {cats.length > 0 && <select value={filterCat} onChange={e => { setFilterCat(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+          <option value="">ทุกหมวด</option>
+          {cats.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>}
+        <span className="text-xs text-slate-400">{mine.length} รายการ</span>
       </div>
       {/* Mobile card list */}
       <div className="sm:hidden flex flex-col gap-2">
@@ -1163,7 +1216,14 @@ function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { request
       {/* Desktop table */}
       <div className="hidden sm:block">
         <Card>
-          <Table headers={['เลขที่', 'รายการ', 'จำนวนเงิน', 'สถานะ', 'วันที่', '']} rows={
+          <Table headers={[
+            <SortTh label="เลขที่" sortKey="reqNo" current={String(sk)} dir={sd} onSort={stoggle} />,
+            <SortTh label="รายการ" sortKey="title" current={String(sk)} dir={sd} onSort={stoggle} />,
+            <SortTh label="จำนวนเงิน" sortKey="totalAmount" current={String(sk)} dir={sd} onSort={stoggle} />,
+            <SortTh label="สถานะ" sortKey="status" current={String(sk)} dir={sd} onSort={stoggle} />,
+            <SortTh label="วันที่" sortKey="createdAt" current={String(sk)} dir={sd} onSort={stoggle} />,
+            '',
+          ]} rows={
             mine.length === 0
               ? <tr><td colSpan={6} className="text-center py-12 text-slate-400 text-sm">ไม่พบข้อมูล</td></tr>
               : paged.map(r => (
@@ -1743,9 +1803,11 @@ function ForwardAccountingPage({ requests, onForward, onAddFile }: {
 
 function PaymentListPage({ requests, onRecord }: { requests: PurchaseRequest[]; onRecord: (r: PurchaseRequest) => void }) {
   const today = new Date().toISOString().slice(0, 10);
-  const waiting = requests
+  const [search, setSearch] = useState('');
+  const { key: sk, dir: sd, toggle: stoggle, sort: ssort } = useSort<PurchaseRequest>('dueDate');
+  const waiting = ssort(requests
     .filter(r => r.status === 'accounting')
-    .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+    .filter(r => !search || r.title.toLowerCase().includes(search.toLowerCase()) || r.reqNo.includes(search)));
 
   const dueBadge = (due: string) => {
     if (!due) return null;
@@ -1758,6 +1820,19 @@ function PaymentListPage({ requests, onRecord }: { requests: PurchaseRequest[]; 
 
   return (
     <div className="page-anim flex flex-col gap-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex-1 max-w-xs"><SearchBar value={search} onChange={setSearch} placeholder="ค้นหาเลขที่ / รายการ..." /></div>
+        <div className="flex gap-1.5 text-xs text-slate-500 items-center">
+          <span>เรียง:</span>
+          {[['dueDate','วันครบกำหนด'],['totalAmount','ยอดเงิน'],['reqNo','เลขที่']].map(([k,l]) => (
+            <button key={k} onClick={() => stoggle(k as any)}
+              className={`px-2 py-1 rounded-lg border transition-colors ${String(sk)===k ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 text-blue-600' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}>
+              {l} {String(sk)===k ? (sd==='asc'?'▲':'▼') : ''}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-slate-400">{waiting.length} รายการ</span>
+      </div>
       {waiting.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-16 text-center">
           <CheckCircle size={36} className="mx-auto text-green-400 mb-3" />
@@ -1832,14 +1907,15 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const { key: sk, dir: sd, toggle: stoggle, sort: ssort } = useSort<PurchaseRequest>('transferDate');
 
-  const done = requests.filter(r => {
+  const done = ssort(requests.filter(r => {
     if (r.status !== 'transferred') return false;
     if (search && !r.title.toLowerCase().includes(search.toLowerCase()) && !(r.transferRef || '').includes(search)) return false;
     if (dateFrom && (r.transferDate || '') < dateFrom) return false;
     if (dateTo && (r.transferDate || '') > dateTo) return false;
     return true;
-  });
+  }));
   const totalAmt = done.reduce((s, r) => s + r.totalAmount, 0);
   const paged = done.slice((page - 1) * pageSize, page * pageSize);
 
@@ -1874,7 +1950,14 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
         </button>
       </div>
       <Card>
-        <Table headers={['เลขที่', 'รายการ', 'จำนวนเงิน', 'Ref. โอน', 'วันที่โอน', 'ผู้ขอ']} rows={
+        <Table headers={[
+          <SortTh label="เลขที่" sortKey="reqNo" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="รายการ" sortKey="title" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="จำนวนเงิน" sortKey="totalAmount" current={String(sk)} dir={sd} onSort={stoggle} />,
+          'Ref. โอน',
+          <SortTh label="วันที่โอน" sortKey="transferDate" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="ผู้ขอ" sortKey="createdByName" current={String(sk)} dir={sd} onSort={stoggle} />,
+        ]} rows={
           done.length === 0
             ? <tr><td colSpan={6} className="text-center py-12 text-slate-400 text-sm">ไม่พบข้อมูล</td></tr>
             : paged.map(r => (
@@ -1897,21 +1980,28 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
 function AllRequestsPage({ requests }: { requests: PurchaseRequest[] }) {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterCat, setFilterCat] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const filtered = requests.filter(r =>
-    (r.title.toLowerCase().includes(search.toLowerCase()) || r.reqNo.includes(search)) &&
-    (!filterStatus || r.status === filterStatus)
-  );
+  const { key: sk, dir: sd, toggle: stoggle, sort: ssort } = useSort<PurchaseRequest>('updatedAt');
+  const cats = [...new Set(requests.map(r => r.category).filter(Boolean))];
+  const filtered = ssort(requests.filter(r =>
+    (!search || r.title.toLowerCase().includes(search.toLowerCase()) || r.reqNo.includes(search) || r.createdByName.toLowerCase().includes(search.toLowerCase())) &&
+    (!filterStatus || r.status === filterStatus) &&
+    (!filterCat || r.category === filterCat)
+  ));
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
   return (
     <div className="page-anim flex flex-col gap-4">
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="flex-1 min-w-[180px] max-w-xs"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} /></div>
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
-          className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุกสถานะ</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <select value={filterCat} onChange={e => { setFilterCat(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+          <option value="">ทุกหมวด</option>
+          {cats.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <span className="text-xs text-slate-400">{filtered.length} รายการ</span>
         <button onClick={() => api.requests.exportExcel(filterStatus || undefined).catch(() => { })}
@@ -1920,7 +2010,15 @@ function AllRequestsPage({ requests }: { requests: PurchaseRequest[] }) {
         </button>
       </div>
       <Card>
-        <Table headers={['เลขที่', 'รายการ', 'ผู้ขอ', 'หมวด', 'จำนวนเงิน', 'สถานะ', 'วันที่']} rows={
+        <Table headers={[
+          <SortTh label="เลขที่" sortKey="reqNo" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="รายการ" sortKey="title" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="ผู้ขอ" sortKey="createdByName" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="หมวด" sortKey="category" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="จำนวนเงิน" sortKey="totalAmount" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="สถานะ" sortKey="status" current={String(sk)} dir={sd} onSort={stoggle} />,
+          <SortTh label="วันที่" sortKey="createdAt" current={String(sk)} dir={sd} onSort={stoggle} />,
+        ]} rows={
           filtered.length === 0
             ? <tr><td colSpan={7} className="text-center py-12 text-slate-400 text-sm">ไม่พบข้อมูล</td></tr>
             : paged.map(r => (
@@ -1945,19 +2043,37 @@ function UserManagementPage({ users, onAdd, onEdit, onDelete, onReset }: {
   users: User[]; onAdd: () => void; onEdit: (u: User) => void; onDelete: (u: User) => void; onReset: (u: User) => void;
 }) {
   const [search, setSearch] = useState('');
-  const filtered = users.filter(u => u.name.toLowerCase().includes(search.toLowerCase()) || u.username.includes(search));
+  const [filterRole, setFilterRole] = useState('');
+  const { key: sk, dir: sd, toggle: stoggle, sort: ssort } = useSort<User>('name');
+  const filtered = ssort(users.filter(u =>
+    (!search || u.name.toLowerCase().includes(search.toLowerCase()) || u.username.includes(search)) &&
+    (!filterRole || u.role === filterRole)
+  ));
 
   return (
     <div className="page-anim flex flex-col gap-4">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="flex-1 max-w-xs"><SearchBar value={search} onChange={setSearch} placeholder="ค้นหาผู้ใช้..." /></div>
+        <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+          <option value="">ทุก Role</option>
+          {Object.entries(ROLE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <span className="text-xs text-slate-400">{filtered.length} คน</span>
         <button onClick={onAdd} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors ml-auto">
           <UserPlus size={15} />เพิ่มผู้ใช้
         </button>
       </div>
       <Card>
-        <Table headers={['ผู้ใช้', 'Email', 'Role', 'สถานะ', 'การดำเนินการ']} rows={
-          filtered.map(u => (
+        <Table headers={[
+          <SortTh label="ผู้ใช้" sortKey="name" current={String(sk)} dir={sd} onSort={stoggle} />,
+          'Email',
+          <SortTh label="Role" sortKey="role" current={String(sk)} dir={sd} onSort={stoggle} />,
+          'สถานะ',
+          'การดำเนินการ',
+        ]} rows={
+          filtered.length === 0
+            ? <tr><td colSpan={5} className="text-center py-12 text-slate-400 text-sm">ไม่พบผู้ใช้</td></tr>
+            : filtered.map(u => (
             <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2.5">
