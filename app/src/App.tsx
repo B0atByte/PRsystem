@@ -2039,8 +2039,9 @@ function AllRequestsPage({ requests }: { requests: PurchaseRequest[] }) {
   );
 }
 
-function UserManagementPage({ users, onAdd, onEdit, onDelete, onReset }: {
+function UserManagementPage({ users, onAdd, onEdit, onDelete, onReset, toast }: {
   users: User[]; onAdd: () => void; onEdit: (u: User) => void; onDelete: (u: User) => void; onReset: (u: User) => void;
+  toast: (m: string, t?: Toast['type']) => void;
 }) {
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('');
@@ -2102,6 +2103,7 @@ function UserManagementPage({ users, onAdd, onEdit, onDelete, onReset }: {
           ))
         } />
       </Card>
+      <IpLockCard toast={toast} />
     </div>
   );
 }
@@ -3256,9 +3258,6 @@ function SiteSettingsPage({ current, onSave, toast }: {
         </div>
       </Card>
 
-      {/* IP Lock Manager */}
-      <IpLockCard toast={toast} />
-
       {/* Test Email Card */}
       <Card title="ทดสอบระบบอีเมล">
         <div className="p-5 flex flex-col gap-3">
@@ -3529,7 +3528,7 @@ export default function App() {
       case 'payment-list': return <PaymentListPage requests={requests} onRecord={r => { setRecordPayReq(r); setTransferDate(today()); }} />;
       case 'record-payment': return <RecordPaymentPage requests={requests} onTransfer={handleTransfer} toast={toast} />;
       case 'payment-history': return <PaymentHistoryPage requests={requests} />;
-      case 'user-management': return <UserManagementPage users={users} onAdd={() => { setEditUserTarget(null); setPage('add-user'); }} onEdit={u => { setEditUserTarget(u); setPage('add-user'); }} onDelete={setDeleteUserTarget} onReset={setResetPwUser} />;
+      case 'user-management': return <UserManagementPage users={users} onAdd={() => { setEditUserTarget(null); setPage('add-user'); }} onEdit={u => { setEditUserTarget(u); setPage('add-user'); }} onDelete={setDeleteUserTarget} onReset={setResetPwUser} toast={toast} />;
       case 'add-user': return <AddUserPage editUser={editUserTarget} onSave={handleSaveUser} />;
       case 'audit-log': return <AuditLogPage logs={auditLogs} />;
       case 'site-settings': return <SiteSettingsPage current={siteSettings} onSave={setSiteSettings} toast={toast} />;
