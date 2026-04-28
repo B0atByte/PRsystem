@@ -24,6 +24,12 @@ const updateSettingsSchema = z.object({
   discordReportTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   discordBotToken: z.string().max(100).nullable().optional(),
   discordChannelId: z.string().max(30).nullable().optional(),
+  smtpHost: z.string().max(200).nullable().optional(),
+  smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
+  smtpSecure: z.boolean().optional(),
+  smtpUser: z.string().max(200).nullable().optional(),
+  smtpPass: z.string().max(500).nullable().optional(),
+  smtpFrom: z.string().max(300).nullable().optional(),
 })
 
 const ensureSettings = () =>
@@ -83,6 +89,12 @@ router.put('/', authMiddleware, requireRole('itsupport'), async (c) => {
       discordReportTime: body.discordReportTime ?? undefined,
       discordBotToken: body.discordBotToken ?? undefined,
       discordChannelId: body.discordChannelId ?? undefined,
+      smtpHost: body.smtpHost ?? undefined,
+      smtpPort: body.smtpPort ?? undefined,
+      smtpSecure: body.smtpSecure ?? undefined,
+      smtpUser: body.smtpUser ?? undefined,
+      smtpPass: body.smtpPass ?? undefined,
+      smtpFrom: body.smtpFrom ?? undefined,
       updatedBy: user.id,
       updatedByName: user.name,
     },
@@ -95,23 +107,39 @@ router.put('/', authMiddleware, requireRole('itsupport'), async (c) => {
 router.post('/test-email', authMiddleware, requireRole('itsupport'), async (c) => {
   const { id, name, role } = c.get('user')
 
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    return c.json({ error: 'ยังไม่ได้ตั้งค่า SMTP_USER / SMTP_PASS ใน .env' }, 400)
-  }
-
   try {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    })
+    const [settings, dbUser] = await Promise.all([
+      ensureSettings(),
+      prisma.user.findUnique({ where: { id }, select: { email: true } }),
+    ])
 
-    const [settings, dbUser] = await Promise.all([ensureSettings(), prisma.user.findUnique({ where: { id }, select: { email: true } })])
+    // เลือก SMTP: DB ก่อน → .env fallback
+    const useDbSmtp = !!(settings.smtpHost && settings.smtpUser && settings.smtpPass)
+    if (!useDbSmtp && (!process.env.SMTP_USER || !process.env.SMTP_PASS)) {
+      return c.json({ error: 'ยังไม่ได้ตั้งค่า SMTP — กรุณาตั้งค่าในหน้า Site Settings หรือ .env' }, 400)
+    }
+
+    const transporter = useDbSmtp
+      ? nodemailer.createTransport({
+          host: settings.smtpHost!,
+          port: settings.smtpPort || 587,
+          secure: settings.smtpSecure || false,
+          auth: { user: settings.smtpUser!, pass: settings.smtpPass! },
+        })
+      : nodemailer.createTransport({
+          service: 'gmail',
+          auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+        })
+
+    const fromAddr = useDbSmtp
+      ? (settings.smtpFrom || settings.smtpUser!)
+      : (process.env.SMTP_FROM || process.env.SMTP_USER || '')
+
     const siteName = settings.siteName || 'ระบบขอซื้อสินค้า'
-    const toEmail = dbUser?.email || process.env.SMTP_USER
-    console.log(`[test-email] sending to: ${toEmail} | from: ${process.env.SMTP_USER}`)
+    const toEmail = dbUser?.email || (useDbSmtp ? settings.smtpUser! : process.env.SMTP_USER!)
 
     await transporter.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: fromAddr,
       to: toEmail,
       subject: `[${siteName}] ทดสอบระบบอีเมลแจ้งเตือน`,
       html: `
@@ -122,12 +150,13 @@ router.post('/test-email', authMiddleware, requireRole('itsupport'), async (c) =
           <div style="background:#fff;padding:20px;border:1px solid #e2e8f0;border-radius:0 0 8px 8px">
             <p>ระบบอีเมลแจ้งเตือนของ <strong>${siteName}</strong> พร้อมใช้งานแล้ว</p>
             <p style="color:#64748b;font-size:14px">ทดสอบโดย: ${name} (${role})<br/>
+            SMTP: ${useDbSmtp ? settings.smtpHost : 'Gmail (.env)'}<br/>
             เวลา: ${new Date().toLocaleString('th-TH')}</p>
           </div>
         </div>`,
     })
 
-    return c.json({ ok: true, sentTo: toEmail })
+    return c.json({ ok: true, sentTo: toEmail, smtpSource: useDbSmtp ? 'database' : 'env' })
   } catch (err: any) {
     return c.json({ error: err.message || 'ส่งอีเมลไม่สำเร็จ' }, 500)
   }

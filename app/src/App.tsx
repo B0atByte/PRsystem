@@ -3314,8 +3314,132 @@ function SiteSettingsPage({ current, onSave, toast }: {
           </button>
         </div>
       </Card>
+
+      {/* SMTP Settings Card */}
+      <SmtpSettingsCard toast={toast} />
     </div>
   );
+}
+
+// ─── SMTP Settings Card ──────────────────────────────────────────────
+function SmtpSettingsCard({ toast }: { toast: (m: string, t?: Toast['type']) => void }) {
+  const [host, setHost] = useState('');
+  const [port, setPort] = useState('587');
+  const [secure, setSecure] = useState(false);
+  const [user, setUser] = useState('');
+  const [pass, setPass] = useState('');
+  const [from, setFrom] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [preset, setPreset] = useState('');
+
+  const PRESETS: Record<string, { host: string; port: string; secure: boolean; label: string }> = {
+    gmail:   { host: 'smtp.gmail.com',     port: '587', secure: false, label: 'Gmail' },
+    outlook: { host: 'smtp.office365.com', port: '587', secure: false, label: 'Outlook / Microsoft 365' },
+    yahoo:   { host: 'smtp.mail.yahoo.com', port: '587', secure: false, label: 'Yahoo Mail' },
+  }
+
+  useEffect(() => {
+    api.settings.getSecure().then(s => {
+      if (s.smtpHost) setHost(s.smtpHost)
+      if (s.smtpPort) setPort(String(s.smtpPort))
+      if (s.smtpSecure !== undefined) setSecure(s.smtpSecure)
+      if (s.smtpUser) setUser(s.smtpUser)
+      if (s.smtpPass) setPass(s.smtpPass)
+      if (s.smtpFrom) setFrom(s.smtpFrom)
+      setLoaded(true)
+    }).catch(() => setLoaded(true))
+  }, [])
+
+  const applyPreset = (key: string) => {
+    const p = PRESETS[key]
+    if (!p) return
+    setHost(p.host); setPort(p.port); setSecure(p.secure); setPreset(key)
+  }
+
+  const handleSave = async () => {
+    if (!host || !user || !pass) return toast('กรุณากรอก Host, Username และ Password', 'error')
+    setSaving(true)
+    try {
+      await api.settings.update({
+        smtpHost: host, smtpPort: parseInt(port) || 587,
+        smtpSecure: secure, smtpUser: user, smtpPass: pass,
+        smtpFrom: from || user,
+      })
+      toast('บันทึกการตั้งค่า SMTP สำเร็จ')
+    } catch (err: any) { toast(err.message || 'เกิดข้อผิดพลาด', 'error') }
+    finally { setSaving(false) }
+  }
+
+  const handleClear = async () => {
+    setSaving(true)
+    try {
+      await api.settings.update({ smtpHost: null, smtpPort: null, smtpUser: null, smtpPass: null, smtpFrom: null })
+      setHost(''); setPort('587'); setUser(''); setPass(''); setFrom(''); setPreset('')
+      toast('ล้างค่า SMTP แล้ว — ระบบจะใช้ .env แทน', 'info')
+    } catch (err: any) { toast(err.message || 'เกิดข้อผิดพลาด', 'error') }
+    finally { setSaving(false) }
+  }
+
+  if (!loaded) return null
+
+  return (
+    <Card title="ตั้งค่า SMTP อีเมล">
+      <div className="p-5 flex flex-col gap-4">
+        <p className="text-xs text-slate-400">ตั้งค่า SMTP จากระบบโดยตรง — ถ้าไม่ตั้งค่าจะใช้ค่าจาก .env แทน</p>
+
+        {/* Preset Buttons */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-slate-500 dark:text-slate-400">เลือก Provider สำเร็จรูป</label>
+          <div className="flex gap-2 flex-wrap">
+            {Object.entries(PRESETS).map(([key, p]) => (
+              <button key={key} onClick={() => applyPreset(key)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors ${preset === key ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Input label="SMTP Host *" value={host} onChange={e => setHost(e.target.value)} placeholder="smtp.gmail.com" />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Port *" type="number" value={port} onChange={e => setPort(e.target.value)} placeholder="587" />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">SSL/TLS</label>
+              <button onClick={() => setSecure(!secure)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${secure ? 'bg-green-50 dark:bg-green-900/20 border-green-400 text-green-700 dark:text-green-400' : 'border-slate-200 dark:border-slate-700 text-slate-500'}`}>
+                {secure ? <CheckCircle size={13} /> : <X size={13} />}{secure ? 'เปิด' : 'ปิด'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <Input label="Username / Email *" value={user} onChange={e => setUser(e.target.value)} placeholder="your@email.com" />
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-slate-500 dark:text-slate-400">Password / App Password *</label>
+          <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••••••••••"
+            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors" />
+        </div>
+        <Input label='ชื่อผู้ส่ง (From) เช่น "ระบบขอซื้อ <email>"' value={from} onChange={e => setFrom(e.target.value)} placeholder={`ระบบขอซื้อ <${user || 'your@email.com'}>`} />
+
+        {host && <div className="text-[11px] text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg px-3 py-2 border border-slate-100 dark:border-slate-700 font-mono">
+          {host}:{port} {secure ? '(SSL)' : '(STARTTLS)'} — {user || '(ยังไม่กรอก)'}
+        </div>}
+
+        <div className="flex gap-2">
+          <button onClick={handleSave} disabled={saving}
+            className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors">
+            {saving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}บันทึก SMTP
+          </button>
+          {host && <button onClick={handleClear} disabled={saving}
+            className="px-4 py-2.5 rounded-xl border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm transition-colors">
+            ล้างค่า
+          </button>}
+        </div>
+      </div>
+    </Card>
+  )
 }
 
 // ═══════════════════════════════════════════════════════════════════

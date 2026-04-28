@@ -1,15 +1,33 @@
 import nodemailer from 'nodemailer'
+import { prisma } from './prisma.js'
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-})
-
-const FROM = process.env.SMTP_FROM || process.env.SMTP_USER || ''
 const SITE_URL = process.env.SITE_URL || 'http://localhost:5173'
+
+async function getTransporter() {
+  const s = await prisma.settings.findUnique({ where: { id: 'singleton' } })
+
+  // ถ้ามี SMTP ตั้งค่าใน DB ใช้ DB ก่อน
+  if (s?.smtpHost && s?.smtpUser && s?.smtpPass) {
+    return {
+      transporter: nodemailer.createTransport({
+        host: s.smtpHost,
+        port: s.smtpPort || 587,
+        secure: s.smtpSecure || false,
+        auth: { user: s.smtpUser, pass: s.smtpPass },
+      }),
+      from: s.smtpFrom || s.smtpUser,
+    }
+  }
+
+  // fallback ใช้ .env
+  return {
+    transporter: nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    }),
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
+  }
+}
 
 function fmt(n: number) {
   return n.toLocaleString('th-TH')
@@ -68,8 +86,9 @@ export async function mailNewRequest(to: string[], req: {
     </div>
     ${loginButton()}`
 
+  const { transporter, from } = await getTransporter()
   await transporter.sendMail({
-    from: FROM, to: to.join(','),
+    from, to: to.join(','),
     subject: `[PR System] ใบขอซื้อใหม่ — ${req.reqNo} | ${req.title}`,
     html: base('มีใบขอซื้อใหม่รอพิจารณา', body),
   })
@@ -96,8 +115,9 @@ export async function mailAccountingForward(to: string[], req: {
     </div>
     ${loginButton()}`
 
+  const { transporter, from } = await getTransporter()
   await transporter.sendMail({
-    from: FROM, to: to.join(','),
+    from, to: to.join(','),
     subject: `[PR System] รอโอนเงิน — ${req.reqNo} | ${req.title}`,
     html: base('มีรายการรอการโอนเงิน', body),
   })
@@ -123,8 +143,9 @@ export async function mailTransferred(to: string, req: {
     </div>
     ${loginButton()}`
 
+  const { transporter, from } = await getTransporter()
   await transporter.sendMail({
-    from: FROM, to,
+    from, to,
     subject: `[PR System] โอนเงินแล้ว — ${req.reqNo} | ${req.title}`,
     html: base('ยืนยันการโอนเงินสำเร็จ', body),
   })
@@ -148,8 +169,9 @@ export async function mailRejected(to: string, req: {
     </div>
     ${loginButton()}`
 
+  const { transporter, from } = await getTransporter()
   await transporter.sendMail({
-    from: FROM, to,
+    from, to,
     subject: `[PR System] ปฏิเสธคำขอ — ${req.reqNo} | ${req.title}`,
     html: base('ใบขอซื้อถูกปฏิเสธ', body),
   })

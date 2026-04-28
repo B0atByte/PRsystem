@@ -136,6 +136,13 @@ model Settings {
   discordBotToken       String?  @db.Text
   discordChannelId      String?
 
+  smtpHost     String?
+  smtpPort     Int?
+  smtpSecure   Boolean  @default(false)
+  smtpUser     String?
+  smtpPass     String?  @db.Text
+  smtpFrom     String?
+
   @@map("settings")
 }
 
