@@ -2162,10 +2162,13 @@ function fmtTimestamp(ts: string) {
 function AuditLogPage({ logs }: { logs: AuditLog[] }) {
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState('');
+  const [filterModule, setFilterModule] = useState('');
+  const [filterUser, setFilterUser] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const { key: sk, dir: sd, toggle: stoggle, sort: ssort } = useSort<AuditLog>('timestamp');
 
   const actionColor: Record<string, string> = {
     LOGIN: 'bg-blue-100 text-blue-700', CREATE: 'bg-green-100 text-green-700',
@@ -2173,15 +2176,22 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
     REJECT: 'bg-red-100 text-red-700', LOGOUT: 'bg-slate-100 text-slate-500',
   };
   const actions = ['LOGIN', 'LOGOUT', 'CREATE', 'UPDATE', 'DELETE', 'REJECT'];
+  const modules = [...new Set(logs.map(l => l.module).filter(Boolean))].sort();
+  const users   = [...new Set(logs.map(l => l.userName).filter(Boolean))].sort();
 
-  const filtered = logs.filter(l => {
+  const hasFilter = !!(search || filterAction || filterModule || filterUser || dateFrom || dateTo);
+  const clearAll  = () => { setSearch(''); setFilterAction(''); setFilterModule(''); setFilterUser(''); setDateFrom(''); setDateTo(''); setPage(1); };
+
+  const filtered = ssort(logs.filter(l => {
     const dateStr = l.timestamp?.slice(0, 10) || '';
-    if (search && !l.userName.includes(search) && !l.action.includes(search) && !l.detail.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search && !l.userName.toLowerCase().includes(search.toLowerCase()) && !l.action.includes(search.toUpperCase()) && !l.detail.toLowerCase().includes(search.toLowerCase()) && !l.module.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterAction && l.action !== filterAction) return false;
+    if (filterModule && l.module !== filterModule) return false;
+    if (filterUser && l.userName !== filterUser) return false;
     if (dateFrom && dateStr < dateFrom) return false;
     if (dateTo && dateStr > dateTo) return false;
     return true;
-  });
+  }));
   const pagedLogs = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const exportCSV = () => {
@@ -2193,23 +2203,52 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
     const a = document.createElement('a'); a.href = url; a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
+  const selCls = 'px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20';
+
   return (
     <div className="page-anim flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="max-w-xs flex-1"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} placeholder="ค้นหาใน audit log..." /></div>
-        <select value={filterAction} onChange={e => { setFilterAction(e.target.value); setPage(1); }}
-          className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20">
-          <option value="">ทุก Action</option>
-          {actions.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-        <div className="flex items-center gap-1.5 text-xs text-slate-500">
-          <Filter size={12} />
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20" />
-          <span>—</span>
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20" />
+      {/* Filter bar */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5"><Filter size={12} />ตัวกรอง</span>
+          {hasFilter && <button onClick={clearAll} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors"><X size={11} />ล้างทั้งหมด</button>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex-1 min-w-[180px] max-w-xs">
+            <SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} placeholder="ค้นหาชื่อ / รายละเอียด..." />
+          </div>
+          <select value={filterAction} onChange={e => { setFilterAction(e.target.value); setPage(1); }} className={selCls}>
+            <option value="">ทุก Action</option>
+            {actions.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <select value={filterModule} onChange={e => { setFilterModule(e.target.value); setPage(1); }} className={selCls}>
+            <option value="">ทุก Module</option>
+            {modules.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <select value={filterUser} onChange={e => { setFilterUser(e.target.value); setPage(1); }} className={selCls}>
+            <option value="">ทุกผู้ใช้</option>
+            {users.map(u => <option key={u} value={u}>{u}</option>)}
+          </select>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-400">ช่วงวันที่:</span>
+          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1); }} className={selCls} />
+          <span className="text-xs text-slate-400">—</span>
+          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(1); }} className={selCls} />
           {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(''); setDateTo(''); }} className="text-slate-400 hover:text-red-500"><X size={12} /></button>}
+          <span className="text-xs text-slate-400 ml-auto">{filtered.length} รายการ</span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+          <span>เรียง:</span>
+          {([['timestamp','เวลา'],['userName','ผู้ใช้'],['action','Action'],['module','Module']] as [keyof AuditLog, string][]).map(([k, l]) => (
+            <button key={k} onClick={() => { stoggle(k); setPage(1); }}
+              className={`px-2 py-1 rounded-lg border text-xs transition-colors ${String(sk)===k ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 text-blue-600' : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'}`}>
+              {l}{String(sk)===k ? (sd==='asc'?' ▲':' ▼'):''}
+            </button>
+          ))}
         </div>
         <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors">
           <Download size={12} />Export CSV
