@@ -50,7 +50,8 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, 401)
   }
 
-  recordSuccess(ip)
+  // itsupport ไม่ clear lock — เพื่อให้เห็น IP ที่ถูกล็อกอยู่และปลดล็อกเองได้
+  if (!isItsupport) recordSuccess(ip)
   const token = signToken({ id: user.id, role: user.role, name: user.name })
   const { password: _, ...userData } = user
   return c.json({ token, user: userData })
