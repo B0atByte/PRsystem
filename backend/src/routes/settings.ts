@@ -33,12 +33,15 @@ const ensureSettings = () =>
     update: {},
   })
 
-// GET /api/settings — public (ใช้ก่อน login เพื่อโหลด branding)
-// คืนเฉพาะข้อมูล branding — ซ่อน webhook/token ที่ sensitive
+// GET /api/settings — public (ใช้ก่อน login เพื่อโหลด branding เท่านั้น)
+// คืนเฉพาะ 3 fields ที่จำเป็นสำหรับแสดงหน้า login
 router.get('/', async (c) => {
   const s = await ensureSettings()
-  const { discordWebhook, discordBotToken, discordChannelId, updatedBy, ...pub } = s
-  return c.json(pub)
+  return c.json({
+    siteName: s.siteName,
+    siteSubtitle: s.siteSubtitle,
+    logoUrl: s.logoUrl,
+  })
 })
 
 // GET /api/settings/secure — itsupport เท่านั้น (ข้อมูลครบรวม webhook/token)
