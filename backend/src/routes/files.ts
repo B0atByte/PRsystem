@@ -49,13 +49,17 @@ router.post('/', authMiddleware, async (c) => {
   let buffer: Buffer = Buffer.from(await file.arrayBuffer())
   let savedExt = ext
 
-  // compress รูปภาพทุกประเภทเป็น WebP อัตโนมัติ (ยกเว้น GIF)
+  // compress รูปภาพเป็น WebP (ยกเว้น GIF)
   if (IMAGE_EXTENSIONS.has(ext) && ext !== '.gif') {
-    buffer = Buffer.from(await sharp(buffer)
-      .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: 82 })
-      .toBuffer())
-    savedExt = '.webp'
+    try {
+      buffer = Buffer.from(await sharp(buffer)
+        .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 82 })
+        .toBuffer())
+      savedExt = '.webp'
+    } catch {
+      return c.json({ error: 'ไฟล์รูปภาพไม่ถูกต้องหรือเสียหาย' }, 400)
+    }
   }
 
   const safeName = `${baseName}${savedExt}`

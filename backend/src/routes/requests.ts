@@ -345,7 +345,7 @@ requests.patch('/:id/status', async (c) => {
   if (!(result as any).data) return result as unknown as Response
   const body = (result as any).data
 
-  // ตรวจ role อย่างเข้มงวด — ถ้า status ไม่อยู่ใน map ให้ reject ทันที
+  // ตรวจ role + current status transition ที่ถูกต้อง
   const allowedActions: Record<string, string[]> = {
     purchasing: ['purchasing'],
     accounting: ['purchasing'],
@@ -354,16 +354,32 @@ requests.patch('/:id/status', async (c) => {
     rejected: ['purchasing', 'accounting'],
   }
 
+  // กำหนด current status ที่ถูกต้องสำหรับแต่ละ transition
+  const requiredCurrentStatus: Record<string, string[]> = {
+    purchasing: ['pending'],
+    accounting: ['purchasing'],
+    transferred: ['accounting'],
+    received: ['transferred'],
+    rejected: ['pending', 'purchasing', 'accounting'],
+  }
+
   const allowed = allowedActions[body.status]
   if (!allowed || !allowed.includes(user.role)) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
+  // ตรวจสอบ current status ก่อน transition
+  const existing = await prisma.purchaseRequest.findUnique({ where: { id }, select: { createdBy: true, status: true } })
+  if (!existing) return c.json({ error: 'Not found' }, 404)
+
+  const validFrom = requiredCurrentStatus[body.status]
+  if (validFrom && !validFrom.includes(existing.status)) {
+    return c.json({ error: `ไม่สามารถเปลี่ยนสถานะได้ (ต้องเป็น ${validFrom.join(' หรือ ')} ก่อน)` }, 400)
+  }
+
   // received — ต้องเป็นเจ้าของใบขอซื้อเท่านั้น
   if (body.status === 'received') {
-    const existing = await prisma.purchaseRequest.findUnique({ where: { id }, select: { createdBy: true, status: true } })
-    if (!existing || existing.createdBy !== user.id) return c.json({ error: 'Forbidden' }, 403)
-    if (existing.status !== 'transferred') return c.json({ error: 'รับสินค้าได้เฉพาะเมื่อโอนเงินแล้วเท่านั้น' }, 400)
+    if (existing.createdBy !== user.id) return c.json({ error: 'Forbidden' }, 403)
   }
 
   const wrapFile = (url?: string) =>
