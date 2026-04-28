@@ -53,8 +53,16 @@ auth.post('/login', async (c) => {
   // itsupport ไม่ clear lock — เพื่อให้เห็น IP ที่ถูกล็อกอยู่และปลดล็อกเองได้
   if (!isItsupport) recordSuccess(ip)
   const token = signToken({ id: user.id, role: user.role, name: user.name })
-  const { password: _, ...userData } = user
-  return c.json({ token, user: userData })
+  return c.json({
+    token,
+    user: {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      active: user.active,
+    },
+  })
 })
 
 // GET /api/auth/locked-ips — itsupport ดู IP ที่ถูกล็อก
