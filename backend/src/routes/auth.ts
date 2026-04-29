@@ -23,7 +23,8 @@ auth.post('/login', async (c) => {
 
   const result = await parseBody(c, loginSchema)
   if (!(result as any).data) return result as unknown as Response
-  const { username, password } = (result as any).data
+  const body = (result as any).data
+  const { username, password, rememberMe } = body
 
   const user = await prisma.user.findUnique({ where: { username } })
 
@@ -56,7 +57,7 @@ auth.post('/login', async (c) => {
 
   // itsupport ไม่ clear lock — เพื่อให้เห็น IP ที่ถูกล็อกอยู่และปลดล็อกเองได้
   if (!isItsupport) recordSuccess(ip)
-  const token = signToken({ id: user.id, role: user.role, name: user.name }, body.rememberMe)
+  const token = signToken({ id: user.id, role: user.role, name: user.name }, rememberMe)
   return c.json({
     token,
     user: {
