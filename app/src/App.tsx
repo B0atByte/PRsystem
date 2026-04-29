@@ -571,14 +571,6 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const demos = [
-    { username: 'owner', role: 'ผู้ประกอบการ', color: 'bg-purple-100 text-purple-700' },
-    { username: 'employee', role: 'พนักงาน', color: 'bg-blue-100 text-blue-700' },
-    { username: 'purchasing', role: 'ฝ่ายจัดซื้อ', color: 'bg-amber-100 text-amber-700' },
-    { username: 'accounting', role: 'บัญชี', color: 'bg-green-100 text-green-700' },
-    { username: 'itsupport', role: 'IT Support', color: 'bg-slate-100 text-slate-700' },
-  ];
-
   const doLogin = async (u: string, p: string) => {
     if (!u || !p) { setError('กรุณากรอก username และ password'); return; }
     setLoading(true); setError('');
