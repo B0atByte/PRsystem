@@ -19,8 +19,8 @@
 | **6** | Tracking Page | ✅ เสร็จ | Real-time polling 30s, timeline 5 ขั้น |
 | **7** | IT Support Pages | ✅ เสร็จ | Audit filter, Export CSV, Discord notification settings |
 | **8** | PDF Generation | ✅ เสร็จ | Print/PDF ใบขอซื้อจาก modal |
-| **9** | Testing & QA | ⬜ ยังไม่ทำ | |
-| **10** | Deploy & Go Live | ⬜ ยังไม่ทำ | |
+| **9** | Testing & QA | ✅ เสร็จ | 64 test cases, Pen test, Security fix |
+| **10** | Deploy & Go Live | ⬜ ยังไม่ทำ | ต้องการ VPS + HTTPS |
 
 ---
 
@@ -200,30 +200,43 @@
 ## Tech Stack
 
 ### Frontend
-| ส่วน | เทคโนโลยี |
-|------|----------|
-| Framework | React 19 + TypeScript |
-| Build Tool | Vite 8 |
-| Styling | Tailwind CSS v4 |
-| Icons | Lucide React |
+| ส่วน | เทคโนโลยี | หมายเหตุ |
+|------|----------|---------|
+| Framework | React 19 + TypeScript | |
+| Build Tool | Vite 8 | |
+| Styling | Tailwind CSS v4 | |
+| Icons | Lucide React | |
 
 ### Backend
-| ส่วน | เทคโนโลยี |
-|------|----------|
-| Runtime | Node.js 20 |
-| Framework | Hono |
-| ORM | Prisma |
-| Database | MySQL 8.0 |
-| Auth | JWT + bcryptjs |
-| File Storage | Local disk (`backend/uploads/`) |
-| Notifications | Nodemailer (Gmail SMTP) + Discord Webhooks |
+| ส่วน | เทคโนโลยี | หมายเหตุ |
+|------|----------|---------|
+| Runtime | Node.js 20 | |
+| Framework | Hono | |
+| ORM | Prisma 5 | |
+| Database | MySQL 8.0 | |
+| Auth | JWT (8h) + bcryptjs | Token blacklist on logout |
+| Validation | Zod | ทุก route |
+| File Storage | Local disk + sharp | Auto-compress รูป → WebP (ลด ~88%) |
+| Excel Export | ExcelJS | Export รายงานใบขอซื้อ |
+| Email | Nodemailer | ตั้งค่า SMTP ได้จากใน UI (Gmail / Outlook / อื่นๆ) |
+| Discord | Discord Webhooks + discord.js Bot | แจ้งเตือน + รายงานประจำวัน |
+| Scheduler | node-cron | ส่งรายงาน Discord ตามเวลาที่กำหนด |
+
+### Security
+| ส่วน | เทคโนโลยี | หมายเหตุ |
+|------|----------|---------|
+| Rate Limiting | In-memory (custom) | Lock IP หลัง login ผิด 5 ครั้ง |
+| Token Blacklist | In-memory (custom) | JWT ใช้ไม่ได้ทันทีหลัง logout |
+| Security Headers | Hono middleware | X-Frame-Options, X-Content-Type-Options, X-XSS-Protection ฯลฯ |
+| Workflow Guard | Prisma + role check | ตรวจ current status ก่อน transition |
 
 ### Infrastructure
-| ส่วน | เทคโนโลยี |
-|------|----------|
-| Container | Docker + Docker Compose |
-| DB Admin | phpMyAdmin |
-| Dev Proxy | Vite proxy (`/api` → `localhost:3000`) |
+| ส่วน | เทคโนโลยี | หมายเหตุ |
+|------|----------|---------|
+| Container | Docker + Docker Compose | Backend + MySQL + phpMyAdmin |
+| DB Admin | phpMyAdmin | Bind localhost เท่านั้น ต้องใส่ password |
+| Process Manager | PM2 | Frontend restart อัตโนมัติ |
+| Dev Proxy | Vite proxy (`/api` → `localhost:3000`) | |
 
 ---
 
