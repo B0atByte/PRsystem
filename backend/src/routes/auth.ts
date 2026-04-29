@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
+import crypto from 'crypto'
+import nodemailer from 'nodemailer'
 import { prisma } from '../lib/prisma.js'
 import { signToken } from '../lib/jwt.js'
 import { authMiddleware, requireRole } from '../middleware/auth.js'
@@ -13,6 +15,7 @@ const auth = new Hono()
 const loginSchema = z.object({
   username: z.string().min(1, 'กรุณากรอก username'),
   password: z.string().min(1, 'กรุณากรอก password'),
+  rememberMe: z.boolean().optional().default(false),
 })
 
 auth.post('/login', async (c) => {
@@ -53,7 +56,7 @@ auth.post('/login', async (c) => {
 
   // itsupport ไม่ clear lock — เพื่อให้เห็น IP ที่ถูกล็อกอยู่และปลดล็อกเองได้
   if (!isItsupport) recordSuccess(ip)
-  const token = signToken({ id: user.id, role: user.role, name: user.name })
+  const token = signToken({ id: user.id, role: user.role, name: user.name }, body.rememberMe)
   return c.json({
     token,
     user: {
@@ -73,6 +76,82 @@ auth.post('/logout', authMiddleware, (c) => {
   const exp = payload?.exp || Math.floor(Date.now() / 1000) + 8 * 3600
   if (token) addToBlacklist(token, exp)
   return c.json({ ok: true })
+})
+
+// POST /api/auth/forgot-password — ขอ reset link
+auth.post('/forgot-password', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const email = body.email?.trim()
+  if (!email) return c.json({ error: 'กรุณากรอก email' }, 400)
+
+  const user = await prisma.user.findFirst({ where: { email, active: true } })
+  // ตอบ ok เสมอ ป้องกัน email enumeration
+  if (!user) return c.json({ ok: true, message: 'ถ้า email นี้มีในระบบ จะได้รับลิงก์ทาง email' })
+
+  const token = crypto.randomBytes(32).toString('hex')
+  const expiry = new Date(Date.now() + 60 * 60 * 1000) // 1 ชั่วโมง
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { resetToken: token, resetTokenExpiry: expiry },
+  })
+
+  const s = await prisma.settings.findUnique({ where: { id: 'singleton' } })
+  const siteUrl = process.env.SITE_URL || 'http://localhost:3456'
+  const siteName = s?.siteName || 'ระบบขอซื้อสินค้า'
+  const resetUrl = `${siteUrl}/reset-password?token=${token}`
+
+  try {
+    const useDb = !!(s?.smtpHost && s?.smtpUser && s?.smtpPass)
+    const transporter = useDb
+      ? nodemailer.createTransport({ host: s!.smtpHost!, port: s!.smtpPort || 587, secure: s!.smtpSecure || false, auth: { user: s!.smtpUser!, pass: s!.smtpPass! } })
+      : nodemailer.createTransport({ service: 'gmail', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } })
+    const from = useDb ? (s!.smtpFrom || s!.smtpUser!) : (process.env.SMTP_FROM || process.env.SMTP_USER || '')
+
+    await transporter.sendMail({
+      from, to: email,
+      subject: `[${siteName}] รีเซ็ตรหัสผ่าน`,
+      html: `
+        <div style="font-family:sans-serif;max-width:500px;margin:0 auto">
+          <div style="background:#1d4ed8;padding:20px;border-radius:8px 8px 0 0">
+            <h2 style="color:#fff;margin:0">${siteName} — รีเซ็ตรหัสผ่าน</h2>
+          </div>
+          <div style="background:#fff;padding:20px;border:1px solid #e2e8f0;border-radius:0 0 8px 8px">
+            <p>สวัสดีคุณ <strong>${user.name}</strong></p>
+            <p>กดปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่ ลิงก์นี้ใช้ได้ภายใน <strong>1 ชั่วโมง</strong></p>
+            <div style="margin:24px 0">
+              <a href="${resetUrl}" style="background:#1d4ed8;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">ตั้งรหัสผ่านใหม่</a>
+            </div>
+            <p style="color:#94a3b8;font-size:12px">ถ้าไม่ได้ขอรีเซ็ต ไม่ต้องทำอะไรครับ</p>
+          </div>
+        </div>`,
+    })
+  } catch (e: any) {
+    console.error('[forgot-password] email error:', e.message)
+  }
+
+  return c.json({ ok: true, message: 'ถ้า email นี้มีในระบบ จะได้รับลิงก์ทาง email' })
+})
+
+// POST /api/auth/reset-password — ตั้งรหัสผ่านใหม่
+auth.post('/reset-password', async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const { token, password } = body
+  if (!token || !password) return c.json({ error: 'ข้อมูลไม่ครบ' }, 400)
+  if (password.length < 6) return c.json({ error: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร' }, 400)
+
+  const user = await prisma.user.findUnique({ where: { resetToken: token } })
+  if (!user || !user.resetTokenExpiry || user.resetTokenExpiry < new Date()) {
+    return c.json({ error: 'ลิงก์ไม่ถูกต้องหรือหมดอายุแล้ว' }, 400)
+  }
+
+  const hashed = await bcrypt.hash(password, 10)
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { password: hashed, resetToken: null, resetTokenExpiry: null },
+  })
+
+  return c.json({ ok: true, message: 'ตั้งรหัสผ่านใหม่สำเร็จ กรุณา login อีกครั้ง' })
 })
 
 // GET /api/auth/locked-ips — itsupport ดู IP ที่ถูกล็อก

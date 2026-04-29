@@ -568,14 +568,19 @@ function FileButton({ label, raw }: { label: string; raw: string }) {
 function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; siteSettings: SiteSettings }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotMsg, setForgotMsg] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const doLogin = async (u: string, p: string) => {
     if (!u || !p) { setError('กรุณากรอก username และ password'); return; }
     setLoading(true); setError('');
     try {
-      const res = await api.auth.login(u, p);
+      const res = await api.auth.login(u, p, rememberMe);
       localStorage.setItem('token', res.token);
       onLogin(res.user);
     } catch (err: any) {
@@ -584,16 +589,27 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
     }
   };
 
+  const doForgot = async () => {
+    if (!forgotEmail.trim()) return;
+    setForgotLoading(true);
+    try {
+      await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+      setForgotMsg('ถ้า email นี้มีในระบบ จะได้รับลิงก์ทาง email ภายใน 5 นาที');
+    } catch { setForgotMsg('เกิดข้อผิดพลาด กรุณาลองใหม่'); }
+    finally { setForgotLoading(false); }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 relative transition-colors duration-300">
-      {/* Dark Mode Toggle for Login Page */}
       <div className="absolute top-6 right-6">
         <button onClick={() => {
           const isDark = !document.documentElement.classList.contains('dark');
           document.documentElement.classList.toggle('dark', isDark);
           localStorage.setItem('theme', isDark ? 'dark' : 'light');
-          // Note: Since this is outside the main App state, it might need a page refresh or a shared state if we want it perfectly synced.
-          // But for a simple implementation, we can just trigger a reload or use a small hack.
           window.location.reload();
         }} className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 shadow-sm hover:scale-105 transition-all">
           {document.documentElement.classList.contains('dark') ? <Sun size={20} /> : <Moon size={20} />}
@@ -607,20 +623,56 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-7">
-          <div className="flex flex-col gap-4">
-            <Input label="ชื่อผู้ใช้" value={username} onChange={e => setUsername(e.target.value)} placeholder="username" onKeyDown={e => e.key === 'Enter' && doLogin(username, password)} autoFocus />
-            <Input label="รหัสผ่าน" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="password" onKeyDown={e => e.key === 'Enter' && doLogin(username, password)} />
-            {error && (
-              <div className="flex items-center gap-2 text-red-600 text-xs bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2.5 border border-red-100 dark:border-red-800">
-                <XCircle size={13} className="shrink-0" />{error}
-              </div>
-            )}
-            <button onClick={() => doLogin(username, password)} disabled={loading}
-              className="mt-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm">
-              {loading ? <><RefreshCw size={14} className="animate-spin" />กำลังเข้าสู่ระบบ...</> : 'เข้าสู่ระบบ'}
-            </button>
-          </div>
+          {!showForgot ? (
+            <div className="flex flex-col gap-4">
+              <Input label="ชื่อผู้ใช้" value={username} onChange={e => setUsername(e.target.value)} placeholder="username" onKeyDown={e => e.key === 'Enter' && doLogin(username, password)} autoFocus />
+              <Input label="รหัสผ่าน" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="password" onKeyDown={e => e.key === 'Enter' && doLogin(username, password)} />
 
+              {/* Remember Me + Forgot Password */}
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 accent-blue-600 cursor-pointer" />
+                  <span className="text-xs text-slate-500 dark:text-slate-400">จำฉันไว้ 30 วัน</span>
+                </label>
+                <button onClick={() => { setShowForgot(true); setError(''); }}
+                  className="text-xs text-blue-500 hover:text-blue-700 transition-colors">
+                  ลืมรหัสผ่าน?
+                </button>
+              </div>
+
+              {error && (
+                <div className="flex items-center gap-2 text-red-600 text-xs bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2.5 border border-red-100 dark:border-red-800">
+                  <XCircle size={13} className="shrink-0" />{error}
+                </div>
+              )}
+              <button onClick={() => doLogin(username, password)} disabled={loading}
+                className="mt-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm">
+                {loading ? <><RefreshCw size={14} className="animate-spin" />กำลังเข้าสู่ระบบ...</> : 'เข้าสู่ระบบ'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <div>
+                <h3 className="font-semibold text-slate-800 dark:text-white text-sm mb-1">ลืมรหัสผ่าน</h3>
+                <p className="text-xs text-slate-400">กรอก email ที่ผูกกับบัญชีของคุณ ระบบจะส่งลิงก์รีเซ็ตให้</p>
+              </div>
+              <Input label="Email" type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder="your@email.com" onKeyDown={e => e.key === 'Enter' && doForgot()} autoFocus />
+              {forgotMsg && (
+                <div className="flex items-center gap-2 text-green-700 text-xs bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2.5 border border-green-100 dark:border-green-800">
+                  <CheckCircle size={13} className="shrink-0" />{forgotMsg}
+                </div>
+              )}
+              <button onClick={doForgot} disabled={forgotLoading || !forgotEmail.trim()}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm">
+                {forgotLoading ? <><RefreshCw size={14} className="animate-spin" />กำลังส่ง...</> : 'ส่งลิงก์รีเซ็ต'}
+              </button>
+              <button onClick={() => { setShowForgot(false); setForgotMsg(''); setForgotEmail(''); }}
+                className="text-xs text-slate-400 hover:text-slate-600 text-center transition-colors">
+                ← กลับไปหน้า login
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -22,8 +22,8 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 
 export const api = {
   auth: {
-    login: (username: string, password: string) =>
-      req<{ token: string; user: any }>('POST', '/api/auth/login', { username, password }),
+    login: (username: string, password: string, rememberMe = false) =>
+      req<{ token: string; user: any }>('POST', '/api/auth/login', { username, password, rememberMe }),
     me: () => req<any>('GET', '/api/auth/me'),
     logout: () => req<{ ok: boolean }>('POST', '/api/auth/logout', {}),
     getLockedIps: () => req<any[]>('GET', '/api/auth/locked-ips'),

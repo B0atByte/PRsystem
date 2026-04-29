@@ -10,8 +10,8 @@ export interface JwtPayload {
   exp?: number
 }
 
-export function signToken(payload: JwtPayload) {
-  return jwt.sign(payload, SECRET, { expiresIn: '8h' })
+export function signToken(payload: JwtPayload, rememberMe = false) {
+  return jwt.sign(payload, SECRET, { expiresIn: rememberMe ? '30d' : '8h' })
 }
 
 export function verifyToken(token: string): JwtPayload {
