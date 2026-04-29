@@ -629,22 +629,6 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
             </button>
           </div>
 
-          <div className="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
-            <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider text-center mb-3">Demo Accounts</p>
-            <div className="flex flex-col gap-1">
-              {demos.map(d => (
-                <button key={d.username} onClick={() => doLogin(d.username, '1234')}
-                  className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors group text-left">
-                  <div className="flex items-center gap-2.5">
-                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${d.color}`}>{d.role}</span>
-                    <span className="text-xs text-slate-400 font-mono">{d.username}</span>
-                  </div>
-                  <ChevronRight size={13} className="text-slate-300 group-hover:text-slate-500 transition-colors" />
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-slate-400 text-center mt-3">รหัสผ่านทุก account: <span className="font-mono font-bold text-slate-600 dark:text-slate-300">1234</span></p>
-          </div>
         </div>
       </div>
     </div>
