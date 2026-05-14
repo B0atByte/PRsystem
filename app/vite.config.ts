@@ -18,7 +18,7 @@ export default defineConfig({
     assetsInlineLimit: 100000000,
     rollupOptions: {
       output: {
-        inlineDynamicImports: true,
+        codeSplitting: false,
         entryFileNames: 'assets/[name].js',
         chunkFileNames: 'assets/[name].js',
         assetFileNames: 'assets/[name].[ext]',

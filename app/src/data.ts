@@ -11,16 +11,27 @@ export interface User {
   createdAt: string;
 }
 
+export interface PurchaseItem {
+  code: string;
+  name: string;
+  qty: number;
+  unit: string;
+  price: number;
+  itemNote: string;
+  externalLink?: string;
+}
+
 export interface PurchaseRequest {
   id: string;
   reqNo: string;
   title: string;
-  items?: { code: string; name: string; qty: number; unit: string; price: number; itemNote: string }[];
+  branch?: string;
+  items?: PurchaseItem[];
   totalAmount: number;
   vatAmount?: number;
   reason: string;
   category: string;
-  categories: string[];          // checkboxes ผัก/เนื้อ/หมู/ไก่/ซอส/เครื่องดื่ม/เครื่องเทศ
+  categories: string[];
   supplierName: string;
   supplierName2?: string;
   paymentMethod: 'bank' | 'cash' | 'transfer' | '';
@@ -46,9 +57,12 @@ export interface PurchaseRequest {
   deliveryNote?: string;
   taxInvoice?: string;
   receivedAt?: string;
+  requestPhotos?: string;
   productPhotos?: string;
   notes?: string;
 }
+
+export const BRANCHES = ['HQ', 'สาขา 1', 'สาขา 2', 'สาขา 3', 'สาขา 4', 'อื่นๆ'];
 
 export interface AuditLog {
   id: string;
@@ -79,11 +93,11 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 export const ROLE_COLORS: Record<Role, string> = {
-  owner: 'bg-purple-100 text-purple-700',
-  employee: 'bg-blue-100 text-blue-700',
-  purchasing: 'bg-amber-100 text-amber-700',
-  accounting: 'bg-green-100 text-green-700',
-  itsupport: 'bg-slate-100 text-slate-700',
+  owner: 'bg-purple-50 text-purple-700 border border-purple-200/70',
+  employee: 'bg-blue-50 text-blue-700 border border-blue-200/70',
+  purchasing: 'bg-amber-50 text-amber-700 border border-amber-200/70',
+  accounting: 'bg-emerald-50 text-emerald-700 border border-emerald-200/70',
+  itsupport: 'bg-slate-100 text-slate-600 border border-slate-200/70',
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -96,12 +110,12 @@ export const STATUS_LABELS: Record<string, string> = {
 };
 
 export const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-700 border border-amber-200',
-  purchasing: 'bg-blue-100 text-blue-700 border border-blue-200',
-  accounting: 'bg-purple-100 text-purple-700 border border-purple-200',
-  transferred: 'bg-orange-100 text-orange-700 border border-orange-200',
-  received: 'bg-green-100 text-green-700 border border-green-200',
-  rejected: 'bg-red-100 text-red-700 border border-red-200',
+  pending: 'bg-amber-50 text-amber-700 border border-amber-200/70',
+  purchasing: 'bg-blue-50 text-blue-700 border border-blue-200/70',
+  accounting: 'bg-violet-50 text-violet-700 border border-violet-200/70',
+  transferred: 'bg-orange-50 text-orange-700 border border-orange-200/70',
+  received: 'bg-emerald-50 text-emerald-700 border border-emerald-200/70',
+  rejected: 'bg-red-50 text-red-600 border border-red-200/70',
 };
 
 export const CATEGORIES = ['ผัก', 'เนื้อ หมู ไก่', 'ซอส', 'เครื่องดื่ม', 'อื่นๆ'];

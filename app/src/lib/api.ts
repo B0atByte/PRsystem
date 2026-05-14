@@ -54,7 +54,7 @@ export const api = {
     update: (id: string, data: unknown) => req<any>('PUT', `/api/users/${id}`, data),
     delete: (id: string) => req<{ ok: boolean }>('DELETE', `/api/users/${id}`),
     resetPassword: (id: string) =>
-      req<{ ok: boolean }>('POST', `/api/users/${id}/reset-password`, {}),
+      req<{ ok: boolean; newPassword: string }>('POST', `/api/users/${id}/reset-password`, {}),
   },
   audit: {
     list: () => req<any[]>('GET', '/api/audit'),

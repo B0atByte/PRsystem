@@ -66,6 +66,8 @@ model PurchaseRequest {
   deliveryNote  String?   @db.Text
   taxInvoice    String?   @db.Text
   receivedAt      String?
+  branch          String   @default("HQ")
+  requestPhotos   String?  @db.Text
   productPhotos   String?  @db.Text
   createdBy     String
   createdByName String
@@ -103,13 +105,14 @@ enum RequestStatus {
 }
 
 model PurchaseItem {
-  id        String  @id @default(cuid())
-  code      String
-  name      String
-  qty       Float
-  unit      String
-  price     Float
-  itemNote  String? @default("")
+  id           String  @id @default(cuid())
+  code         String
+  name         String
+  qty          Float
+  unit         String
+  price        Float
+  itemNote     String? @default("")
+  externalLink String? @db.Text
 
   requestId String
   request   PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -133,10 +136,18 @@ model Settings {
   discordOnTransferred  Boolean  @default(true)
   discordOnRejected     Boolean  @default(true)
   discordOnReceived     Boolean  @default(true)
+  discordOnLogin        Boolean  @default(false)
+  discordOnLogout       Boolean  @default(false)
+  discordOnPasswordReset Boolean @default(false)
+  discordSecurityWebhook  String?  @db.Text
+  discordSecurityChannelId String?
   discordReportEnabled  Boolean  @default(false)
   discordReportTime     String   @default("08:00")
   discordBotToken       String?  @db.Text
   discordChannelId      String?
+  discordRolePerms      String?  @db.Text
+
+  branches     String?  @db.Text
 
   smtpHost     String?
   smtpPort     Int?

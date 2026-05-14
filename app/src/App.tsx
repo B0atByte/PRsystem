@@ -6,11 +6,12 @@ import {
   Upload, Moon, Sun, ChevronDown, Activity,
   Shield, KeyRound, UserPlus, BarChart2,
   FileCheck, Send, Banknote, History, RefreshCw, Menu, Package,
-  Download, Filter, CalendarDays, MessageSquare, ChevronLeft
+  Download, Filter, CalendarDays, MessageSquare, ChevronLeft,
+  ExternalLink, MapPin, Image
 } from 'lucide-react';
 import {
   ROLE_LABELS, ROLE_COLORS, STATUS_LABELS, STATUS_COLORS, CATEGORIES,
-  type User, type PurchaseRequest, type AuditLog, type Role
+  type User, type PurchaseRequest, type PurchaseItem, type AuditLog, type Role
 } from './data';
 import { api } from './lib/api';
 import './index.css';
@@ -27,9 +28,13 @@ type Page =
 
 interface SiteSettings {
   siteName: string; siteSubtitle: string; logoUrl?: string | null; updatedByName?: string; updatedAt?: string;
+  branches?: string[];
+  discordRolePerms?: string | null;
   discordWebhook?: string | null;
   discordOnNewRequest?: boolean; discordOnPurchasing?: boolean; discordOnAccounting?: boolean;
   discordOnTransferred?: boolean; discordOnRejected?: boolean; discordOnReceived?: boolean;
+  discordOnLogin?: boolean; discordOnLogout?: boolean; discordOnPasswordReset?: boolean;
+  discordSecurityWebhook?: string | null; discordSecurityChannelId?: string | null;
   discordReportEnabled?: boolean; discordReportTime?: string;
   discordBotToken?: string | null; discordChannelId?: string | null;
 }
@@ -38,12 +43,35 @@ interface SiteSettings {
 const fmt = (n: number) => n.toLocaleString('th-TH', { minimumFractionDigits: 0 });
 const today = () => new Date().toISOString().slice(0, 10);
 
+async function compressImage(file: File, maxPx = 1200, quality = 0.82): Promise<File> {
+  if (!file.type.startsWith('image/')) return file;
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const { width: w, height: h } = img;
+      const scale = Math.min(1, maxPx / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => resolve(blob ? new File([blob], file.name.replace(/\.[^.]+$/, '.webp'), { type: 'image/webp' }) : file),
+        'image/webp', quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 // ─── Toast ────────────────────────────────────────────────────────────────────
 function ToastContainer({ toasts, remove }: { toasts: Toast[]; remove: (id: string) => void }) {
   return (
-    <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
+    <div className="fixed top-3 right-3 left-3 sm:left-auto sm:top-4 sm:right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
       {toasts.map(t => (
-        <div key={t.id} className={`toast-anim pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg text-sm font-medium min-w-[260px] max-w-sm
+        <div key={t.id} className={`toast-anim pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-md shadow-lg text-sm font-medium sm:min-w-[260px] sm:max-w-sm
           ${t.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
             t.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
               t.type === 'warning' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
@@ -66,14 +94,14 @@ function Modal({ open, title, children, onClose, footer }: {
 }) {
   if (!open) return null;
   return (
-    <div className="modal-bg fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col border border-slate-200 dark:border-slate-700">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-          <h3 className="font-semibold text-slate-800 dark:text-white text-sm">{title}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"><X size={18} /></button>
+    <div className="modal-bg fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-950/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] sm:max-h-[90vh] flex flex-col border-t sm:border border-slate-200/80 dark:border-slate-700">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="font-semibold text-slate-900 dark:text-white text-sm">{title}</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-colors"><X size={17} /></button>
         </div>
-        <div className="overflow-y-auto flex-1 px-6 py-4">{children}</div>
-        {footer && <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800">{footer}</div>}
+        <div className="overflow-y-auto flex-1 px-5 sm:px-6 py-5">{children}</div>
+        {footer && <div className="px-5 sm:px-6 py-4 border-t border-slate-100 dark:border-slate-800">{footer}</div>}
       </div>
     </div>
   );
@@ -85,20 +113,20 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel
 }) {
   if (!open) return null;
   return (
-    <div className="modal-bg fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-200 dark:border-slate-700">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
-            <AlertCircle size={18} className="text-red-500" />
+    <div className="modal-bg fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-slate-200/80 dark:border-slate-700">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 rounded-xl bg-red-50 dark:bg-red-900/20 flex items-center justify-center shrink-0">
+            <AlertCircle size={20} className="text-red-500" />
           </div>
           <div className="flex-1">
             <h4 className="font-semibold text-slate-800 dark:text-white text-sm mb-1">{title}</h4>
             <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{message}</p>
           </div>
         </div>
-        <div className="flex gap-3 mt-5 justify-end">
-          <button onClick={onCancel} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors font-medium">ยกเลิก</button>
-          <button onClick={onConfirm} className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${confirmClass}`}>{confirmLabel}</button>
+        <div className="flex gap-3 mt-6 justify-end">
+          <button onClick={onCancel} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors font-medium">ยกเลิก</button>
+          <button onClick={onConfirm} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${confirmClass}`}>{confirmLabel}</button>
         </div>
       </div>
     </div>
@@ -107,34 +135,34 @@ function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[status] || 'bg-slate-100 text-slate-600'}`}>{STATUS_LABELS[status] || status}</span>;
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide ${STATUS_COLORS[status] || 'bg-slate-100 text-slate-600'}`}>{STATUS_LABELS[status] || status}</span>;
 }
 function RoleBadge({ role }: { role: Role }) {
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${ROLE_COLORS[role]}`}>{ROLE_LABELS[role]}</span>;
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium ${ROLE_COLORS[role]}`}>{ROLE_LABELS[role]}</span>;
 }
 
 // ─── Form Components ──────────────────────────────────────────────────────────
 function Input({ label, className = '', ...props }: { label?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <div className="flex flex-col gap-1">
-      {label && <label className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</label>}
-      <input {...props} className={`px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600 ${className}`} />
+    <div className="flex flex-col gap-1.5">
+      {label && <label className="text-xs font-medium text-slate-600 dark:text-slate-400">{label}</label>}
+      <input {...props} className={`px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 ${className}`} />
     </div>
   );
 }
 function Sel({ label, children, className = '', ...props }: { label?: string; children: React.ReactNode } & React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <div className="flex flex-col gap-1">
-      {label && <label className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</label>}
-      <select {...props} className={`px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all ${className}`}>{children}</select>
+    <div className="flex flex-col gap-1.5">
+      {label && <label className="text-xs font-medium text-slate-600 dark:text-slate-400">{label}</label>}
+      <select {...props} className={`px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${className}`}>{children}</select>
     </div>
   );
 }
 function Textarea({ label, className = '', ...props }: { label?: string } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
-    <div className="flex flex-col gap-1">
-      {label && <label className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</label>}
-      <textarea {...props} className={`px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-600 resize-none ${className}`} />
+    <div className="flex flex-col gap-1.5">
+      {label && <label className="text-xs font-medium text-slate-600 dark:text-slate-400">{label}</label>}
+      <textarea {...props} className={`px-3 py-2 rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none ${className}`} />
     </div>
   );
 }
@@ -142,9 +170,12 @@ function Textarea({ label, className = '', ...props }: { label?: string } & Reac
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, color }: { label: string; value: string | number; icon: React.ElementType; color: string }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-100 dark:border-slate-800 flex items-center gap-4">
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${color}`}><Icon size={19} /></div>
-      <div className="min-w-0"><div className="text-xl font-bold text-slate-800 dark:text-white truncate">{value}</div><div className="text-xs text-slate-400 mt-0.5">{label}</div></div>
+    <div className="bg-white dark:bg-slate-900 rounded-xl p-5 border border-slate-200/70 dark:border-slate-800 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow duration-200">
+      <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${color}`}><Icon size={20} /></div>
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">{label}</div>
+        <div className="text-2xl font-bold text-slate-900 dark:text-white truncate leading-tight">{value}</div>
+      </div>
     </div>
   );
 }
@@ -228,7 +259,7 @@ function SortTh({ label, sortKey, current, dir, onSort, className = '' }: {
   const active = current === sortKey
   return (
     <th onClick={() => onSort(sortKey)}
-      className={`px-4 py-2.5 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wide cursor-pointer select-none hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-colors whitespace-nowrap ${className}`}>
+      className={`px-4 py-3 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/40 transition-colors whitespace-nowrap ${className}`}>
       <span className="flex items-center gap-1">
         {label}
         <span className={`text-[10px] ${active ? 'text-blue-500' : 'text-slate-300 dark:text-slate-600'}`}>
@@ -245,14 +276,14 @@ function Table({ headers, rows }: { headers: (string | React.ReactNode)[]; rows:
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-slate-50 dark:bg-slate-800/60">
+          <tr className="bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
             {headers.map((h, i) => typeof h === 'string'
-              ? <th key={i} className="px-4 py-2.5 text-left text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{h}</th>
+              ? <th key={i} className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{h}</th>
               : <React.Fragment key={i}>{h}</React.Fragment>
             )}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-50 dark:divide-slate-800">{rows}</tbody>
+        <tbody className="divide-y divide-slate-50 dark:divide-slate-800/60">{rows}</tbody>
       </table>
     </div>
   );
@@ -279,9 +310,9 @@ function Pagination({ total, page, pageSize, onPage, onPageSize }: {
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(page * pageSize, total);
 
-  const btnBase = 'w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium border transition-colors';
+  const btnBase = 'w-8 h-8 flex items-center justify-center rounded text-xs font-medium border transition-colors';
   const btnIdle = 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 bg-white dark:bg-slate-900';
-  const btnActive = 'border-blue-600 bg-blue-600 text-white';
+  const btnActive = 'border-blue-600 bg-blue-600 text-white shadow-sm';
   const btnDisabled = 'border-slate-100 dark:border-slate-800 text-slate-300 dark:text-slate-600 bg-white dark:bg-slate-900 cursor-not-allowed';
 
   return (
@@ -316,10 +347,10 @@ function Pagination({ total, page, pageSize, onPage, onPageSize }: {
 // ─── Section Card ─────────────────────────────────────────────────────────────
 function Card({ title, children, action }: { title?: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200/70 dark:border-slate-800 overflow-hidden shadow-sm">
       {title && (
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800">
-          <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</span>
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-100 dark:border-slate-800">
+          <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</span>
           {action}
         </div>
       )}
@@ -334,7 +365,7 @@ function SearchBar({ value, onChange, placeholder = 'ค้นหา...' }: { va
     <div className="relative">
       <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="pl-8 pr-8 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-full placeholder:text-slate-400" />
+        className="pl-8 pr-8 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-[#206bc4]/20 focus:border-[#206bc4] transition-all w-full placeholder:text-slate-400" />
       {value && <button onClick={() => onChange('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={13} /></button>}
     </div>
   );
@@ -361,13 +392,13 @@ function SkeletonPage({ page }: { page: Page }) {
     <div className="page-anim space-y-4">
       <div className="flex items-center justify-between mb-2">
         <Sk className="h-7 w-48" />
-        <Sk className="h-9 w-32 rounded-xl" />
+        <Sk className="h-9 w-32 rounded-md" />
       </div>
       <div className="flex gap-3 mb-2">
-        <Sk className="h-9 flex-1 max-w-xs rounded-xl" />
-        <Sk className="h-9 w-32 rounded-xl" />
+        <Sk className="h-9 flex-1 max-w-xs rounded-md" />
+        <Sk className="h-9 w-32 rounded-md" />
       </div>
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex gap-4">
           {['w-24','w-32','w-20','w-28','w-16'].map((w,i) => <Sk key={i} className={`h-4 ${w}`} />)}
         </div>
@@ -390,10 +421,10 @@ function SkeletonPage({ page }: { page: Page }) {
     <div className="page-anim space-y-5">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {Array.from({length: 4}).map((_,i) => (
-          <div key={i} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 space-y-3">
+          <div key={i} className="bg-white dark:bg-slate-900 rounded-md p-4 border border-slate-100 dark:border-slate-800 space-y-3">
             <div className="flex items-center justify-between">
               <Sk className="h-4 w-20" />
-              <Sk className="h-8 w-8 rounded-xl" />
+              <Sk className="h-8 w-8 rounded-md" />
             </div>
             <Sk className="h-8 w-16" />
             <Sk className="h-3 w-24" />
@@ -402,11 +433,11 @@ function SkeletonPage({ page }: { page: Page }) {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[6,4].map((rows,j) => (
-          <div key={j} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 space-y-3">
+          <div key={j} className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 p-4 space-y-3">
             <Sk className="h-5 w-32" />
             {Array.from({length: rows}).map((_,i) => (
               <div key={i} className="flex gap-3 items-center">
-                <Sk className="h-8 w-8 rounded-xl shrink-0" />
+                <Sk className="h-8 w-8 rounded-md shrink-0" />
                 <div className="flex-1 space-y-2">
                   <Sk className="h-3 w-3/4" />
                   <Sk className="h-3 w-1/2" />
@@ -424,16 +455,16 @@ function SkeletonPage({ page }: { page: Page }) {
   const formSkeleton = () => (
     <div className="page-anim max-w-2xl space-y-4">
       <Sk className="h-7 w-48 mb-4" />
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-5 space-y-4">
+      <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 p-5 space-y-4">
         {Array.from({length: 6}).map((_,i) => (
           <div key={i} className="space-y-1.5">
             <Sk className="h-3 w-24" />
-            <Sk className="h-10 w-full rounded-xl" />
+            <Sk className="h-10 w-full rounded-md" />
           </div>
         ))}
         <div className="flex gap-3 pt-2">
-          <Sk className="h-10 flex-1 rounded-xl" />
-          <Sk className="h-10 w-24 rounded-xl" />
+          <Sk className="h-10 flex-1 rounded-md" />
+          <Sk className="h-10 w-24 rounded-md" />
         </div>
       </div>
     </div>
@@ -443,17 +474,17 @@ function SkeletonPage({ page }: { page: Page }) {
   const settingsSkeleton = () => (
     <div className="page-anim space-y-4">
       <Sk className="h-7 w-48" />
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-5 space-y-5">
+      <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 p-5 space-y-5">
         {Array.from({length: 5}).map((_,i) => (
           <div key={i} className="flex items-center justify-between gap-4">
             <div className="space-y-1.5 flex-1">
               <Sk className="h-4 w-32" />
               <Sk className="h-3 w-56" />
             </div>
-            <Sk className="h-10 w-48 rounded-xl" />
+            <Sk className="h-10 w-48 rounded-md" />
           </div>
         ))}
-        <Sk className="h-10 w-36 rounded-xl" />
+        <Sk className="h-10 w-36 rounded-md" />
       </div>
     </div>
   );
@@ -498,7 +529,7 @@ function FileUploadField({ label, fileName, onFile, onError }: {
       {label && <label className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</label>}
       <div onClick={() => !uploading && ref.current?.click()}
         className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 border-dashed cursor-pointer transition-all select-none
-          ${fileName ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700' : 'border-slate-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-600 bg-white dark:bg-slate-800'}`}>
+          ${fileName ? 'border-[#206bc4]/50 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-700' : 'border-slate-200 dark:border-slate-700 hover:border-[#206bc4]/40 dark:hover:border-blue-600 bg-white dark:bg-slate-800'}`}>
         <input ref={ref} type="file" className="hidden" onChange={handleChange} />
         {uploading ? (
           <>
@@ -546,8 +577,8 @@ function FileButton({ label, raw }: { label: string; raw: string }) {
   const atStr = meta.at ? new Date(meta.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : '';
   return (
     <button onClick={open} disabled={!canView || loading}
-      className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 hover:shadow-sm transition-all w-full text-left group disabled:opacity-50 disabled:cursor-not-allowed">
-      <div className="w-7 h-7 rounded-md bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
+      className="flex items-center gap-2.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 hover:shadow-sm transition-all w-full text-left group disabled:opacity-50 disabled:cursor-not-allowed">
+      <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center shrink-0">
         {loading ? <RefreshCw size={11} className="animate-spin text-slate-400" /> : <FileCheck size={11} className="text-slate-500 dark:text-slate-400" />}
       </div>
       <div className="flex-1 min-w-0">
@@ -569,7 +600,7 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  const [error, setError] = useState('');
+  const [loginNotice, setLoginNotice] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -577,14 +608,24 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
   const [forgotLoading, setForgotLoading] = useState(false);
 
   const doLogin = async (u: string, p: string) => {
-    if (!u || !p) { setError('กรุณากรอก username และ password'); return; }
-    setLoading(true); setError('');
+    if (!u || !p) {
+      setLoginNotice({ type: 'error', message: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่านให้ครบ' });
+      return;
+    }
+    setLoading(true);
+    setLoginNotice({ type: 'info', message: 'กำลังตรวจสอบข้อมูล กรุณารอสักครู่...' });
+    const minimumDelay = new Promise(resolve => setTimeout(resolve, 800));
     try {
       const res = await api.auth.login(u, p, rememberMe);
+      await minimumDelay;
+      setLoginNotice({ type: 'success', message: 'รหัสถูกต้อง กำลังเข้าสู่ระบบ...' });
+      await new Promise(resolve => setTimeout(resolve, 600));
       localStorage.setItem('token', res.token);
       onLogin(res.user);
     } catch (err: any) {
-      setError(err.message || 'เข้าสู่ระบบไม่สำเร็จ');
+      await minimumDelay;
+      const message = err.message || 'รหัสผ่านหรือชื่อผู้ใช้ไม่ถูกต้อง';
+      setLoginNotice({ type: 'error', message });
       setLoading(false);
     }
   };
@@ -604,51 +645,62 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 relative transition-colors duration-300">
-      <div className="absolute top-6 right-6">
+    <div className="min-h-screen flex items-center justify-center bg-[#f4f6fb] dark:bg-slate-950 p-4 relative transition-colors duration-300">
+      <div className="absolute top-5 right-5">
         <button onClick={() => {
           const isDark = !document.documentElement.classList.contains('dark');
           document.documentElement.classList.toggle('dark', isDark);
           localStorage.setItem('theme', isDark ? 'dark' : 'light');
           window.location.reload();
-        }} className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 shadow-sm hover:scale-105 transition-all">
-          {document.documentElement.classList.contains('dark') ? <Sun size={20} /> : <Moon size={20} />}
+        }} className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+          {document.documentElement.classList.contains('dark') ? <Sun size={18} /> : <Moon size={18} />}
         </button>
       </div>
-      <div className="w-full max-w-[420px]">
-        <div className="text-center mb-7">
-          {siteSettings.logoUrl && <img src={siteSettings.logoUrl} alt="logo" className="w-20 h-20 object-contain mx-auto mb-4 drop-shadow-md rounded-xl" />}
-          <h1 className="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">{siteSettings.siteName}</h1>
+      <div className="w-full max-w-[400px]">
+        <div className="text-center mb-6">
+          {siteSettings.logoUrl && <img src={siteSettings.logoUrl} alt="logo" className="w-16 h-16 object-contain mx-auto mb-4 rounded-sm" />}
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-white tracking-tight">{siteSettings.siteName}</h1>
           <p className="text-slate-400 text-sm mt-1">{siteSettings.siteSubtitle}</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 p-7">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-lg border border-slate-200/80 dark:border-slate-800 p-7">
           {!showForgot ? (
             <div className="flex flex-col gap-4">
-              <Input label="ชื่อผู้ใช้" value={username} onChange={e => setUsername(e.target.value)} placeholder="username" onKeyDown={e => e.key === 'Enter' && doLogin(username, password)} autoFocus />
-              <Input label="รหัสผ่าน" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="password" onKeyDown={e => e.key === 'Enter' && doLogin(username, password)} />
+              <Input label="ชื่อผู้ใช้" value={username} onChange={e => setUsername(e.target.value)} placeholder="username" onKeyDown={e => e.key === 'Enter' && doLogin(username, password)} className="rounded-sm h-11" autoFocus />
+              <Input label="รหัสผ่าน" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="password" onKeyDown={e => e.key === 'Enter' && doLogin(username, password)} className="rounded-sm h-11" />
 
               {/* Remember Me + Forgot Password */}
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-blue-600 accent-blue-600 cursor-pointer" />
+                    className="w-4 h-4 rounded-sm border-slate-300 text-blue-600 accent-blue-600 cursor-pointer" />
                   <span className="text-xs text-slate-500 dark:text-slate-400">จำฉันไว้ 30 วัน</span>
                 </label>
-                <button onClick={() => { setShowForgot(true); setError(''); }}
+                <button onClick={() => { setShowForgot(true); setLoginNotice(null); }}
                   className="text-xs text-blue-500 hover:text-blue-700 transition-colors">
                   ลืมรหัสผ่าน?
                 </button>
               </div>
 
-              {error && (
-                <div className="flex items-center gap-2 text-red-600 text-xs bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2.5 border border-red-100 dark:border-red-800">
-                  <XCircle size={13} className="shrink-0" />{error}
+              {loginNotice && (
+                <div className={`flex items-center gap-2 text-xs rounded-sm px-3 py-2.5 border ${
+                  loginNotice.type === 'success'
+                    ? 'text-green-700 bg-green-50 border-green-100 dark:bg-green-900/20 dark:border-green-800'
+                    : loginNotice.type === 'error'
+                      ? 'text-red-600 bg-red-50 border-red-100 dark:bg-red-900/20 dark:border-red-800'
+                      : 'text-blue-700 bg-blue-50 border-blue-100 dark:bg-blue-900/20 dark:border-blue-800'
+                }`}>
+                  {loginNotice.type === 'success'
+                    ? <CheckCircle size={13} className="shrink-0" />
+                    : loginNotice.type === 'error'
+                      ? <XCircle size={13} className="shrink-0" />
+                      : <RefreshCw size={13} className="shrink-0 animate-spin" />}
+                  {loginNotice.message}
                 </div>
               )}
               <button onClick={() => doLogin(username, password)} disabled={loading}
-                className="mt-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm">
-                {loading ? <><RefreshCw size={14} className="animate-spin" />กำลังเข้าสู่ระบบ...</> : 'เข้าสู่ระบบ'}
+                className="mt-1 h-11 bg-[#206bc4] hover:bg-[#1a5fad] disabled:opacity-60 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 text-sm shadow-sm">
+                {loading ? <><RefreshCw size={14} className="animate-spin" />กำลังตรวจสอบ...</> : 'เข้าสู่ระบบ'}
               </button>
             </div>
           ) : (
@@ -657,14 +709,14 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
                 <h3 className="font-semibold text-slate-800 dark:text-white text-sm mb-1">ลืมรหัสผ่าน</h3>
                 <p className="text-xs text-slate-400">กรอก email ที่ผูกกับบัญชีของคุณ ระบบจะส่งลิงก์รีเซ็ตให้</p>
               </div>
-              <Input label="Email" type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder="your@email.com" onKeyDown={e => e.key === 'Enter' && doForgot()} autoFocus />
+              <Input label="Email" type="email" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} placeholder="your@email.com" onKeyDown={e => e.key === 'Enter' && doForgot()} className="rounded-sm h-11" autoFocus />
               {forgotMsg && (
-                <div className="flex items-center gap-2 text-green-700 text-xs bg-green-50 dark:bg-green-900/20 rounded-lg px-3 py-2.5 border border-green-100 dark:border-green-800">
+                <div className="flex items-center gap-2 text-green-700 text-xs bg-green-50 dark:bg-green-900/20 rounded-sm px-3 py-2.5 border border-green-100 dark:border-green-800">
                   <CheckCircle size={13} className="shrink-0" />{forgotMsg}
                 </div>
               )}
               <button onClick={doForgot} disabled={forgotLoading || !forgotEmail.trim()}
-                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm">
+                className="h-11 bg-[#206bc4] hover:bg-[#1a5fad] disabled:opacity-60 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 text-sm shadow-sm">
                 {forgotLoading ? <><RefreshCw size={14} className="animate-spin" />กำลังส่ง...</> : 'ส่งลิงก์รีเซ็ต'}
               </button>
               <button onClick={() => { setShowForgot(false); setForgotMsg(''); setForgotEmail(''); }}
@@ -674,6 +726,9 @@ function LoginPage({ onLogin, siteSettings }: { onLogin: (u: User) => void; site
             </div>
           )}
         </div>
+        <p className="mt-5 text-center text-[11px] text-slate-400 dark:text-slate-600">
+          Copyright © {new Date().getFullYear()} Brewing Happiness. All rights reserved.
+        </p>
       </div>
     </div>
   );
@@ -687,15 +742,15 @@ const MENU: MenuItem[] = [
   { id: 'dashboard', label: 'แดชบอร์ด', icon: LayoutDashboard, roles: ['owner', 'itsupport'] },
   { id: 'all-requests', label: 'คำขอทั้งหมด', icon: FileText, roles: ['owner', 'itsupport'] },
   { id: 'reports', label: 'รายงานสรุป', icon: BarChart2, roles: ['owner'] },
-  { id: 'create-request', label: 'สร้างใบขอซื้อ', icon: Plus, roles: ['employee'] },
-  { id: 'my-requests', label: 'คำขอของฉัน', icon: FileText, roles: ['employee'] },
+  { id: 'create-request', label: 'สร้างใบขอซื้อ', icon: Plus, roles: ['employee', 'owner'] },
+  { id: 'my-requests', label: 'คำขอของฉัน', icon: FileText, roles: ['employee', 'owner'] },
   { id: 'tracking', label: 'ติดตามคำขอ', icon: Package, roles: ['owner', 'employee', 'purchasing', 'accounting', 'itsupport'] },
-  { id: 'pending-approval', label: 'รายการรออนุมัติ', icon: Clock, roles: ['purchasing', 'itsupport'] },
-  { id: 'issue-pr-po', label: 'แนบเอกสาร PR / PO', icon: FileCheck, roles: ['purchasing'] },
-  { id: 'forward-accounting', label: 'ส่งต่อบัญชี', icon: Send, roles: ['purchasing'] },
-  { id: 'payment-list', label: 'รายการรอโอนเงิน', icon: Banknote, roles: ['accounting', 'itsupport'] },
-  { id: 'record-payment', label: 'บันทึกการโอนเงิน', icon: CreditCard, roles: ['accounting'] },
-  { id: 'payment-history', label: 'ประวัติการโอน', icon: History, roles: ['accounting', 'itsupport'] },
+  { id: 'pending-approval', label: 'รายการรออนุมัติ', icon: Clock, roles: ['purchasing', 'itsupport', 'owner'] },
+  { id: 'issue-pr-po', label: 'แนบเอกสาร PR / PO', icon: FileCheck, roles: ['purchasing', 'owner'] },
+  { id: 'forward-accounting', label: 'ส่งต่อบัญชี', icon: Send, roles: ['purchasing', 'owner'] },
+  { id: 'payment-list', label: 'รายการรอโอนเงิน', icon: Banknote, roles: ['accounting', 'itsupport', 'owner'] },
+  { id: 'record-payment', label: 'บันทึกการโอนเงิน', icon: CreditCard, roles: ['accounting', 'owner'] },
+  { id: 'payment-history', label: 'ประวัติการโอน', icon: History, roles: ['accounting', 'itsupport', 'owner'] },
   { id: 'user-management', label: 'จัดการผู้ใช้', icon: Users, roles: ['itsupport'] },
   { id: 'add-user', label: 'เพิ่มผู้ใช้ใหม่', icon: UserPlus, roles: ['itsupport'] },
   { id: 'audit-log', label: 'Audit Log', icon: Activity, roles: ['itsupport'] },
@@ -708,13 +763,18 @@ function Sidebar({ user, page, setPage, collapsed, dark, toggleDark, mobileOpen,
 }) {
   const items = MENU.filter(m => m.roles.includes(user.role));
   return (
-    <aside className={`fixed md:relative z-40 h-screen flex flex-col bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800 transition-transform md:transition-all duration-200 shrink-0 w-64 ${collapsed ? 'md:w-14' : 'md:w-56'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+    <aside className={`fixed md:relative z-40 h-screen flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800 transition-transform md:transition-all duration-200 shrink-0 w-64 ${collapsed ? 'md:w-[60px]' : 'md:w-60'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
       {/* Logo */}
-      <div className={`flex items-center gap-3 px-3 py-4 border-b border-slate-100 dark:border-slate-800 ${collapsed ? 'justify-center' : 'px-4'}`}>
-        {siteSettings.logoUrl && <img src={siteSettings.logoUrl} alt="logo" className="w-8 h-8 object-contain shrink-0 rounded" />}
+      <div className={`flex items-center gap-3 border-b border-slate-200/80 dark:border-slate-800 h-14 shrink-0 ${collapsed ? 'justify-center px-2' : 'px-4'}`}>
+        {siteSettings.logoUrl
+          ? <img src={siteSettings.logoUrl} alt="logo" className="w-8 h-8 object-contain shrink-0 rounded-lg" />
+          : <div className="w-8 h-8 rounded-lg bg-[#206bc4] flex items-center justify-center shrink-0">
+              <span className="text-white font-bold text-sm">{siteSettings.siteName.charAt(0)}</span>
+            </div>
+        }
         {!collapsed && (
           <div className="min-w-0">
-            <div className="text-sm font-bold text-slate-800 dark:text-white leading-tight truncate">{siteSettings.siteName}</div>
+            <div className="text-sm font-bold text-slate-900 dark:text-white leading-tight truncate">{siteSettings.siteName}</div>
             <div className="text-[10px] text-slate-400 truncate">{siteSettings.siteSubtitle}</div>
           </div>
         )}
@@ -722,13 +782,13 @@ function Sidebar({ user, page, setPage, collapsed, dark, toggleDark, mobileOpen,
 
       {/* User info */}
       {!collapsed && (
-        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold text-xs shrink-0">
+        <div className="px-3 py-3 border-b border-slate-100 dark:border-slate-800/60">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/50">
+            <div className="w-8 h-8 rounded-full bg-[#206bc4]/10 dark:bg-blue-900/40 flex items-center justify-center text-[#206bc4] dark:text-blue-300 font-bold text-sm shrink-0">
               {user.name.charAt(0)}
             </div>
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{user.name}</div>
+              <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate leading-tight">{user.name}</div>
               <RoleBadge role={user.role} />
             </div>
           </div>
@@ -736,15 +796,17 @@ function Sidebar({ user, page, setPage, collapsed, dark, toggleDark, mobileOpen,
       )}
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto py-3 px-2.5 space-y-0.5">
         {items.map(m => {
           const active = page === m.id;
           return (
             <button key={m.id} onClick={() => { setPage(m.id); setMobileOpen(false); }} title={collapsed ? m.label : undefined}
-              className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-xl text-sm font-medium transition-all
-                ${active ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-white'}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150
+                ${active
+                  ? 'bg-[#206bc4]/8 dark:bg-blue-900/25 text-[#206bc4] dark:text-blue-300 font-semibold'
+                  : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-slate-800 dark:hover:text-white'}
                 ${collapsed ? 'justify-center' : ''}`}>
-              <m.icon size={17} className="shrink-0" />
+              <m.icon size={17} className={`shrink-0 ${active ? 'text-[#206bc4] dark:text-blue-400' : ''}`} />
               {!collapsed && <span className="truncate">{m.label}</span>}
             </button>
           );
@@ -752,7 +814,7 @@ function Sidebar({ user, page, setPage, collapsed, dark, toggleDark, mobileOpen,
       </nav>
 
       {/* Bottom */}
-      <div className={`p-2 border-t border-slate-100 dark:border-slate-800 ${collapsed ? 'flex flex-col gap-1 items-center' : 'flex gap-1'}`}>
+      <div className={`p-2.5 border-t border-slate-100 dark:border-slate-800 ${collapsed ? 'flex flex-col gap-1 items-center' : 'flex gap-1'}`}>
         <button onClick={toggleDark} title="Toggle Dark Mode"
           className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-white transition-colors">
           {dark ? <Sun size={15} /> : <Moon size={15} />}
@@ -782,22 +844,23 @@ function Topbar({ page, user, requests, onLogout, collapsed, setCollapsed, mobil
 
   const badgeCount = requests.filter(r =>
     (user.role === 'purchasing' && r.status === 'pending') ||
-    (user.role === 'accounting' && r.status === 'accounting')
+    (user.role === 'accounting' && r.status === 'accounting') ||
+    (user.role === 'owner' && ['pending', 'purchasing', 'accounting'].includes(r.status))
   ).length;
 
   const recent = [...requests].reverse().slice(0, 6);
 
   return (
-    <div className="h-13 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex items-center px-4 gap-3 shrink-0 h-[52px]">
+    <div className="bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 flex items-center px-4 gap-3 shrink-0 h-14">
       <button onClick={() => { if (window.innerWidth < 768) setMobileOpen(!mobileOpen); else setCollapsed(!collapsed); }}
-        className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-white transition-colors">
+        className="w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-white transition-colors">
         <Menu size={16} />
       </button>
 
-      <div className="flex items-center gap-1.5 text-xs text-slate-400">
+      <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
         <span>หน้าหลัก</span>
         <ChevronRight size={11} />
-        <span className="font-medium text-slate-600 dark:text-slate-300">{pageTitles[page] || page}</span>
+        <span className="font-semibold text-slate-700 dark:text-slate-300">{pageTitles[page] || page}</span>
       </div>
 
       <div className="flex-1" />
@@ -805,23 +868,23 @@ function Topbar({ page, user, requests, onLogout, collapsed, setCollapsed, mobil
       {/* Notification */}
       <div className="relative">
         <button onClick={() => { setShowNotif(!showNotif); setShowUserMenu(false); }}
-          className="relative w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-white transition-colors">
-          <Bell size={16} />
+          className="relative w-9 h-9 flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-white transition-colors">
+          <Bell size={17} />
           {badgeCount > 0 && (
-            <span className="absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center font-bold leading-none">{badgeCount}</span>
+            <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center font-bold leading-none">{badgeCount}</span>
           )}
         </button>
         {showNotif && (
-          <div className="absolute right-0 top-10 w-76 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 z-50 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">การแจ้งเตือน</span>
-              <button onClick={() => setShowNotif(false)}><X size={14} className="text-slate-400" /></button>
+          <div className="absolute right-0 top-11 w-[calc(100vw-1.5rem)] sm:w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200/80 dark:border-slate-800 z-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">การแจ้งเตือน</span>
+              <button onClick={() => setShowNotif(false)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"><X size={14} className="text-slate-400" /></button>
             </div>
             <div className="max-h-72 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800">
               {recent.map(r => (
-                <div key={r.id} className="px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-default">
+                <div key={r.id} className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-default transition-colors">
                   <div className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate">{r.title}</div>
-                  <div className="flex items-center gap-2 mt-1"><StatusBadge status={r.status} /><span className="text-[10px] text-slate-400">{r.updatedAt}</span></div>
+                  <div className="flex items-center gap-2 mt-1.5"><StatusBadge status={r.status} /><span className="text-[10px] text-slate-400">{r.updatedAt}</span></div>
                 </div>
               ))}
             </div>
@@ -832,19 +895,19 @@ function Topbar({ page, user, requests, onLogout, collapsed, setCollapsed, mobil
       {/* User menu */}
       <div className="relative">
         <button onClick={() => { setShowUserMenu(!showUserMenu); setShowNotif(false); }}
-          className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-          <div className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold text-xs">{user.name.charAt(0)}</div>
+          className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+          <div className="w-8 h-8 rounded-full bg-[#206bc4]/10 dark:bg-blue-900/40 flex items-center justify-center text-[#206bc4] dark:text-blue-300 font-bold text-sm">{user.name.charAt(0)}</div>
           <span className="text-sm text-slate-700 dark:text-slate-200 font-medium hidden sm:block max-w-[100px] truncate">{user.name.split(' ')[0]}</span>
           <ChevronDown size={12} className="text-slate-400 hidden sm:block" />
         </button>
         {showUserMenu && (
-          <div className="absolute right-0 top-10 w-48 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-100 dark:border-slate-800 z-50 py-2">
-            <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
-              <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{user.name}</div>
+          <div className="absolute right-0 top-11 w-52 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200/80 dark:border-slate-800 z-50 py-2 overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 mb-1">
+              <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate mb-1">{user.name}</div>
               <RoleBadge role={user.role} />
             </div>
             <button onClick={() => { setShowUserMenu(false); onLogout(); }}
-              className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors font-medium">
               <LogOut size={14} />ออกจากระบบ
             </button>
           </div>
@@ -860,9 +923,9 @@ function Topbar({ page, user, requests, onLogout, collapsed, setCollapsed, mobil
 
 function DashboardPage({ requests }: { requests: PurchaseRequest[] }) {
   const total = requests.length;
-  const pending = requests.filter(r => ['pending', 'purchasing', 'accounting'].includes(r.status)).length;
-  const done = requests.filter(r => r.status === 'transferred').length;
-  const budget = requests.filter(r => r.status === 'transferred').reduce((s, r) => s + r.totalAmount, 0);
+  const pending = requests.filter(r => ['pending', 'purchasing', 'accounting', 'transferred'].includes(r.status)).length;
+  const done = requests.filter(r => ['transferred', 'received'].includes(r.status)).length;
+  const budget = requests.filter(r => ['transferred', 'received'].includes(r.status)).reduce((s, r) => s + r.totalAmount, 0);
 
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
     const m = new Date(); m.setMonth(m.getMonth() - 5 + i);
@@ -877,7 +940,7 @@ function DashboardPage({ requests }: { requests: PurchaseRequest[] }) {
 
   return (
     <div className="page-anim flex flex-col gap-5">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="คำขอทั้งหมด" value={total} icon={FileText} color="bg-blue-100 dark:bg-blue-900/30 text-blue-600" />
         <StatCard label="อยู่ระหว่างดำเนินการ" value={pending} icon={Clock} color="bg-amber-100 dark:bg-amber-900/30 text-amber-600" />
         <StatCard label="เสร็จสิ้นแล้ว" value={done} icon={CheckCircle} color="bg-green-100 dark:bg-green-900/30 text-green-600" />
@@ -918,10 +981,11 @@ function EditRequestModal({ req, onClose, onSaved, toast }: {
   const parseFile = (raw?: string) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
   const existingFile = parseFile(req.requestFile);
 
+  const [title, setTitle] = useState(req.title);
   const [categories] = useState<string[]>(req.categories || []);
-  const [supplierName] = useState(req.supplierName);
-  const [supplierName2] = useState(req.supplierName2 || '');
-  const [items] = useState((req.items ?? []).map(i => ({ code: i.code, name: i.name, qty: i.qty, unit: i.unit, price: i.price, itemNote: i.itemNote })));
+  const [supplierName, setSupplierName] = useState(req.supplierName);
+  const [supplierName2, setSupplierName2] = useState(req.supplierName2 || '');
+  const [items, setItems] = useState<PurchaseItem[]>((req.items ?? []).map(i => ({ code: i.code || '', name: i.name, qty: i.qty, unit: i.unit, price: i.price, itemNote: i.itemNote || '', externalLink: i.externalLink || '' })));
   const [paymentMethod, setPaymentMethod] = useState(req.paymentMethod);
   const [paymentTiming, setPaymentTiming] = useState(req.paymentTiming);
   const [orderDate, setOrderDate] = useState(req.orderDate);
@@ -935,23 +999,22 @@ function EditRequestModal({ req, onClose, onSaved, toast }: {
   const [saving, setSaving] = useState(false);
 
   const total = items.reduce((s, i) => s + i.qty * i.price, 0);
-  // const updateItem = (i: number, f: string, v: string | number) =>
-  //   setItems(p => p.map((x, idx) => idx === i ? { ...x, [f]: v } : x));
+  const updateItem = (idx: number, f: string, v: string | number) =>
+    setItems(p => p.map((x, i) => i === idx ? { ...x, [f]: v } : x));
 
   const handleSave = async () => {
-    // if (categories.length === 0) return toast('กรุณาเลือกประเภทสินค้าอย่างน้อย 1 ประเภท', 'error');
-    // if (!supplierName.trim()) return toast('กรุณากรอกชื่อ Supplier', 'error');
-    // if (items.some(i => !i.name.trim())) return toast('กรุณากรอกชื่อสินค้าทุกรายการ', 'error');
-    // if (total <= 0) return toast('ยอดรวมต้องมากกว่า 0', 'error');
+    if (!title.trim()) return toast('กรุณากรอกชื่อรายการ', 'error');
     if (!reqFileUrl) return toast('กรุณาแนบใบขอสั่งซื้อ', 'error');
     if (!paymentMethod) return toast('กรุณาเลือกช่องทางการชำระเงิน', 'error');
     if (!paymentTiming) return toast('กรุณาเลือกกำหนดจ่าย', 'error');
     setSaving(true);
+    const validItems = items.filter(i => i.name.trim());
+    const calcTotal = validItems.length > 0 ? total : req.totalAmount;
     try {
       const updated = await api.requests.update(req.id, {
-        title: `สั่งซื้อ${categories.join('/')} - ${supplierName}`,
+        title: title.trim(),
         category: categories[0] || '', categories, supplierName, supplierName2,
-        items, totalAmount: total, reason: notes,
+        items: validItems, totalAmount: calcTotal, reason: notes,
         paymentMethod, paymentTiming,
         orderDate, deliveryDate, dueDate, contactName, signedDate,
         requestFile: reqFileUrl || undefined,
@@ -967,50 +1030,50 @@ function EditRequestModal({ req, onClose, onSaved, toast }: {
     <Modal open title={`แก้ไขใบขอซื้อ ${req.reqNo}`} onClose={onClose} footer={
       <div className="flex gap-3">
         <button onClick={handleSave} disabled={saving}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
+          className="flex-1 bg-[#206bc4] hover:bg-[#1a5fad] disabled:opacity-60 text-white font-semibold py-2.5 rounded-md text-sm transition-colors flex items-center justify-center gap-2">
           <CheckCircle size={15} />{saving ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
         </button>
-        <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">ยกเลิก</button>
+        <button onClick={onClose} className="px-5 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">ยกเลิก</button>
       </div>
     }>
       <div className="flex flex-col gap-4 max-h-[65vh] overflow-y-auto pr-1">
-        {/* ปิดการใช้งานชั่วคราว
-        <div>
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">ประเภทสินค้า *</div>
-          <CheckboxGroup options={CATEGORIES} selected={categories} onChange={setCategories} />
+        <Input label="ชื่อรายการขอซื้อ *" value={title} onChange={e => setTitle(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="ชื่อ Supplier" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="ชื่อผู้จำหน่าย" />
+          <Input label="Supplier 2 (ถ้ามี)" value={supplierName2} onChange={e => setSupplierName2(e.target.value)} />
         </div>
-        <Input label="ชื่อ (Supplier Name) *" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="ชื่อผู้จำหน่าย" />
-        <Input label="Supplier 2 (ถ้ามี)" value={supplierName2} onChange={e => setSupplierName2(e.target.value)} placeholder="" />
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">รายการสินค้า *</div>
-            <button onClick={() => setItems(p => [...p, { code: '', name: '', qty: 1, unit: 'หน่วย', price: 0, itemNote: '' }])}
+            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">รายการสินค้า</div>
+            <button onClick={() => setItems(p => [...p, { code: '', name: '', qty: 1, unit: 'หน่วย', price: 0, itemNote: '', externalLink: '' }])}
               className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1"><Plus size={12} />เพิ่มรายการ</button>
           </div>
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div className="grid bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-400 uppercase"
-              style={{ gridTemplateColumns: '70px 1fr 60px 70px 90px 1fr 32px' }}>
-              {['Code', 'รายการ', 'จำนวน', 'หน่วย', 'ราคา', 'หมายเหตุ', ''].map((h, i) => (
-                <div key={i} className={`px-2 py-2 ${i < 6 ? 'border-r border-slate-200 dark:border-slate-700' : ''}`}>{h}</div>
+          <div className="rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden overflow-x-auto">
+            <div className="grid bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-400 uppercase min-w-[400px]"
+              style={{ gridTemplateColumns: '80px 1fr 56px 66px 80px 32px' }}>
+              {['รหัส', 'ชื่อสินค้า', 'จำนวน', 'หน่วย', 'ราคา', ''].map((h, i) => (
+                <div key={i} className={`px-2 py-2 ${i < 5 ? 'border-r border-slate-200 dark:border-slate-700' : ''}`}>{h}</div>
               ))}
             </div>
             {items.map((item, i) => (
-              <div key={i} className="grid border-b border-slate-50 dark:border-slate-800/80 last:border-0"
-                style={{ gridTemplateColumns: '70px 1fr 60px 70px 90px 1fr 32px' }}>
+              <div key={i} className="grid border-b border-slate-50 dark:border-slate-800/80 last:border-0 min-w-[400px]"
+                style={{ gridTemplateColumns: '80px 1fr 56px 66px 80px 32px' }}>
                 {[
-                  <input value={item.code} onChange={e => updateItem(i, 'code', e.target.value)} placeholder="C..."
+                  <input value={item.code} onChange={e => updateItem(i, 'code', e.target.value)} placeholder="รหัส/สินค้าใหม่"
                     className="w-full px-2 py-2 text-xs bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-blue-900/20 border-r border-slate-100 dark:border-slate-800" />,
-                  <input value={item.name} onChange={e => updateItem(i, 'name', e.target.value)} placeholder="ชื่อสินค้า"
-                    className="w-full px-2 py-2 text-sm bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-blue-900/20 border-r border-slate-100 dark:border-slate-800" />,
+                  <div key="name-link" className="flex flex-col border-r border-slate-100 dark:border-slate-800">
+                    <input value={item.name} onChange={e => updateItem(i, 'name', e.target.value)} placeholder="ชื่อสินค้า"
+                      className="w-full px-2 py-1.5 text-sm bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-blue-900/20" />
+                    <input value={item.externalLink || ''} onChange={e => updateItem(i, 'externalLink', e.target.value)} placeholder="ลิงก์อ้างอิง..."
+                      className="w-full px-2 py-1 text-[10px] text-blue-500 bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-blue-900/20 border-t border-slate-50 dark:border-slate-800/50" />
+                  </div>,
                   <input type="number" value={item.qty} onChange={e => updateItem(i, 'qty', +e.target.value)} min={1}
                     className="w-full px-2 py-2 text-sm text-center bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-blue-900/20 border-r border-slate-100 dark:border-slate-800" />,
                   <input value={item.unit} onChange={e => updateItem(i, 'unit', e.target.value)}
                     className="w-full px-2 py-2 text-xs text-center bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-blue-900/20 border-r border-slate-100 dark:border-slate-800" />,
                   <input type="number" value={item.price || ''} onChange={e => updateItem(i, 'price', +e.target.value)} placeholder="0"
                     className="w-full px-2 py-2 text-sm text-right bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-blue-900/20 border-r border-slate-100 dark:border-slate-800" />,
-                  <input value={item.itemNote} onChange={e => updateItem(i, 'itemNote', e.target.value)} placeholder="-"
-                    className="w-full px-2 py-2 text-xs bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-blue-900/20 border-r border-slate-100 dark:border-slate-800" />,
                   <div className="flex items-center justify-center">
                     {items.length > 1 && (
                       <button onClick={() => setItems(p => p.filter((_, idx) => idx !== i))}
@@ -1022,12 +1085,13 @@ function EditRequestModal({ req, onClose, onSaved, toast }: {
                 ].map((cell, ci) => <div key={ci}>{cell}</div>)}
               </div>
             ))}
-            <div className="flex justify-end px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold text-slate-500">ยอดรวม: <span className="text-blue-600 text-sm">฿{fmt(total)}</span></span>
-            </div>
+            {total > 0 && (
+              <div className="flex justify-end px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-xs font-bold text-slate-500">ยอดรวม: <span className="text-blue-600 text-sm">฿{fmt(total)}</span></span>
+              </div>
+            )}
           </div>
         </div>
-        */}
 
         <div className="pt-2">
           <FileUploadField
@@ -1092,13 +1156,14 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    if (photoUrls.length + files.length > 4) return toast('อัปโหลดได้สูงสุด 4 รูปเท่านั้น', 'error');
+    if (photoUrls.length + files.length > 5) return toast('อัปโหลดได้สูงสุด 5 รูปเท่านั้น', 'error');
     setPhotoUploading(true);
     try {
       const uploaded: string[] = [];
       for (const file of files) {
+        const compressed = await compressImage(file);
         const form = new FormData();
-        form.append('file', file);
+        form.append('file', compressed);
         const token = localStorage.getItem('token');
         const res = await fetch('/api/files', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
         if (!res.ok) throw new Error('อัปโหลดรูปไม่สำเร็จ');
@@ -1133,14 +1198,14 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
     <Modal open title={`กดรับสินค้า — ${req.reqNo}`} onClose={onClose} footer={
       <div className="flex gap-3">
         <button onClick={handleSave} disabled={saving}
-          className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
+          className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-md text-sm transition-colors flex items-center justify-center gap-2">
           <CheckCircle size={15} />{saving ? 'กำลังบันทึก...' : 'ยืนยันรับสินค้า'}
         </button>
-        <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">ยกเลิก</button>
+        <button onClick={onClose} className="px-5 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">ยกเลิก</button>
       </div>
     }>
       <div className="space-y-4">
-        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 border border-slate-100 dark:border-slate-700">
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-md p-3 border border-slate-100 dark:border-slate-700">
           <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{req.title}</div>
           <div className="text-xs text-slate-400 mt-0.5">{req.reqNo} · <span className="font-bold text-blue-600">฿{req.totalAmount.toLocaleString('th-TH')}</span></div>
         </div>
@@ -1155,11 +1220,11 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
         {/* รูปสินค้า */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">รูปภาพสินค้า (ไม่เกิน 4 รูป)</label>
-            <span className="text-xs text-slate-400">{photoUrls.length}/4</span>
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">รูปภาพสินค้า (ไม่เกิน 5 รูป)</label>
+            <span className="text-xs text-slate-400">{photoUrls.length}/5</span>
           </div>
           {photoUrls.length > 0 && (
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
               {photoUrls.map((url, i) => (
                 <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                   <img src={url} alt={`สินค้า ${i + 1}`} className="w-full h-full object-cover" />
@@ -1175,7 +1240,7 @@ function ReceiveGoodsModal({ req, onClose, onSaved, toast }: {
             <>
               <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={handlePhotoUpload} />
               <button onClick={() => photoRef.current?.click()} disabled={photoUploading}
-                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 dark:text-slate-400 hover:border-blue-400 hover:text-blue-500 dark:hover:border-blue-500 dark:hover:text-blue-400 transition-colors disabled:opacity-50">
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-md border-2 border-dashed border-slate-300 dark:border-slate-600 text-sm text-slate-500 dark:text-slate-400 hover:border-blue-400 hover:text-blue-500 dark:hover:border-blue-500 dark:hover:text-blue-400 transition-colors disabled:opacity-50">
                 <Upload size={15} />{photoUploading ? 'กำลังอัปโหลด...' : `เลือกรูปภาพ (เหลือ ${4 - photoUrls.length} รูป)`}
               </button>
             </>
@@ -1207,11 +1272,11 @@ function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { request
     <div className="page-anim flex flex-col gap-4">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex-1 min-w-[180px] max-w-xs"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} /></div>
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุกสถานะ</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        {cats.length > 0 && <select value={filterCat} onChange={e => { setFilterCat(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+        {cats.length > 0 && <select value={filterCat} onChange={e => { setFilterCat(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุกหมวด</option>
           {cats.map(c => <option key={c} value={c}>{c}</option>)}
         </select>}
@@ -1220,9 +1285,9 @@ function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { request
       {/* Mobile card list */}
       <div className="sm:hidden flex flex-col gap-2">
         {mine.length === 0
-          ? <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-12 text-center text-slate-400 text-sm">ไม่พบข้อมูล</div>
+          ? <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 py-12 text-center text-slate-400 text-sm">ไม่พบข้อมูล</div>
           : paged.map(r => (
-            <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 flex items-center gap-3">
+            <div key={r.id} className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 p-4 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <span className="text-[11px] font-mono text-slate-400">{r.reqNo}</span>
@@ -1232,9 +1297,9 @@ function MyRequestsPage({ requests, user, onView, onEdit, onReceive }: { request
                 <div className="text-xs text-slate-400 mt-0.5">{r.createdAt} · <span className="font-semibold text-slate-600 dark:text-slate-300">฿{fmt(r.totalAmount)}</span></div>
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                {r.status === 'pending' && <button onClick={() => onEdit(r)} className="p-2 rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20 text-amber-500 transition-colors" title="แก้ไข"><Edit2 size={16} /></button>}
-                {r.status === 'transferred' && <button onClick={() => onReceive(r)} className="p-2 rounded-xl hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 transition-colors" title="กดรับสินค้า"><Package size={16} /></button>}
-                <button onClick={() => onView(r)} className="p-2 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 transition-colors" title="ดูรายละเอียด"><Eye size={16} /></button>
+                {r.status === 'pending' && <button onClick={() => onEdit(r)} className="p-2 rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 text-amber-500 transition-colors" title="แก้ไข"><Edit2 size={16} /></button>}
+                {r.status === 'transferred' && <button onClick={() => onReceive(r)} className="p-2 rounded-md hover:bg-green-50 dark:hover:bg-green-900/20 text-green-600 transition-colors" title="กดรับสินค้า"><Package size={16} /></button>}
+                <button onClick={() => onView(r)} className="p-2 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-500 transition-colors" title="ดูรายละเอียด"><Eye size={16} /></button>
               </div>
             </div>
           ))
@@ -1323,8 +1388,9 @@ function RadioGroup({ options, value, onChange }: { options: { val: string; labe
 }
 
 // ── Create Request Page ──────────────────────────────────────────────────────
-function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Omit<PurchaseRequest, 'id' | 'reqNo' | 'createdAt' | 'updatedAt'>) => void; toast: (m: string, t?: Toast['type']) => void }) {
+function CreateRequestPage({ user, onSave, toast, siteSettings }: { user: User; onSave: (r: Omit<PurchaseRequest, 'id' | 'reqNo' | 'createdAt' | 'updatedAt'>) => void; toast: (m: string, t?: Toast['type']) => void; siteSettings: SiteSettings }) {
   const [title, setTitle] = useState('');
+  const [branch, setBranch] = useState('HQ');
   const [subAmount, setSubAmount] = useState('');
   const [vatAmount, setVatAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
@@ -1333,22 +1399,52 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
   const [deliveryDate, setDeliveryDate] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
-  const [contactName, setContactName] = useState(user.name);
   const [signedDate, setSignedDate] = useState(today());
   const [reqFileName, setReqFileName] = useState('');
   const [reqFileUrl, setReqFileUrl] = useState('');
+  const [items, setItems] = useState<PurchaseItem[]>([{ code: '', name: '', qty: 1, unit: 'หน่วย', price: 0, itemNote: '', externalLink: '' }]);
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const photoRef = React.useRef<HTMLInputElement>(null);
 
   const vat = +vatAmount || 0;
   const sub = +subAmount || 0;
   const totalAmount = sub + vat;
+  const updateItem = (i: number, key: string, value: any) =>
+    setItems(p => p.map((item, idx) => idx === i ? { ...item, [key]: value } : item));
+  const itemTotal = items.reduce((sum, it) => sum + it.qty * it.price, 0);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    if (photoUrls.length + files.length > 5) return toast('อัปโหลดได้สูงสุด 5 รูปเท่านั้น', 'error');
+    setPhotoUploading(true);
+    try {
+      const uploaded: string[] = [];
+      for (const file of files) {
+        const compressed = await compressImage(file);
+        const form = new FormData();
+        form.append('file', compressed);
+        const token = localStorage.getItem('token');
+        const res = await fetch('/api/files', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+        if (!res.ok) throw new Error('อัปโหลดรูปไม่สำเร็จ');
+        const data = await res.json();
+        uploaded.push(data.url);
+      }
+      setPhotoUrls(prev => [...prev, ...uploaded]);
+    } catch (err: any) { toast(err.message || 'อัปโหลดรูปไม่สำเร็จ', 'error'); }
+    finally { setPhotoUploading(false); if (photoRef.current) photoRef.current.value = ''; }
+  };
 
   const handleReset = () => {
-    setTitle('');
+    setTitle(''); setBranch('HQ');
     setSubAmount(''); setVatAmount('');
     setPaymentMethod(''); setPaymentTiming('');
     setOrderDate(today()); setDeliveryDate(''); setDueDate('');
-    setNotes(''); setContactName(user.name); setSignedDate(today());
+    setNotes(''); setSignedDate(today());
     setReqFileName(''); setReqFileUrl('');
+    setItems([{ code: '', name: '', qty: 1, unit: 'หน่วย', price: 0, itemNote: '', externalLink: '' }]);
+    setPhotoUrls([]);
   };
 
   const handleSubmit = () => {
@@ -1357,13 +1453,15 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
     if (!subAmount || sub <= 0) return toast('กรุณากรอกยอดเงินก่อน VAT', 'error');
     if (!paymentMethod) return toast('กรุณาเลือกช่องทางการชำระเงิน', 'error');
     if (!paymentTiming) return toast('กรุณาเลือกกำหนดจ่าย', 'error');
+    const validItems = items.filter(it => it.name.trim());
     onSave({
-      title: title.trim(),
+      title: title.trim(), branch,
       category: '', categories: [], supplierName: '', supplierName2: '',
-      items: [], totalAmount, vatAmount: vat, reason: notes,
+      items: validItems, totalAmount, vatAmount: vat, reason: notes,
       paymentMethod: paymentMethod as any, paymentTiming: paymentTiming as any,
-      orderDate, deliveryDate, dueDate, contactName, signedDate,
+      orderDate, deliveryDate, dueDate, contactName: user.name, signedDate,
       requestFile: reqFileUrl,
+      requestPhotos: photoUrls.length ? JSON.stringify(photoUrls) : undefined,
       status: 'pending', createdBy: user.id, createdByName: user.name, notes,
     });
     handleReset();
@@ -1374,7 +1472,7 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
   );
 
   return (
-    <div className="page-anim max-w-3xl">
+    <div className="page-anim max-w-3xl w-full">
       <Card>
         {/* Title */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 text-center">
@@ -1383,49 +1481,57 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
         </div>
 
         <div className="p-6 flex flex-col gap-5">
-          {/* ชื่อรายการ */}
+          {/* ชื่อรายการ + สาขา */}
           <Input label="ชื่อรายการขอซื้อ *" value={title} onChange={e => setTitle(e.target.value)} placeholder="เช่น ซื้อวัตถุดิบประจำสัปดาห์, ซื้ออุปกรณ์สำนักงาน" />
 
-          {/* วันที่แจ้ง + เลขที่ */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input label="วันที่แจ้ง *" type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">สาขา *</label>
+              <input
+                list="branches-datalist"
+                value={branch}
+                onChange={e => setBranch(e.target.value)}
+                placeholder="ค้นหาหรือเลือกสาขา..."
+                className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-white text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-colors"
+              />
+              <datalist id="branches-datalist">
+                {(siteSettings.branches || ['HQ']).map(b => <option key={b} value={b}>{b === 'HQ' ? 'HQ (สำนักงานใหญ่)' : b}</option>)}
+              </datalist>
+            </div>
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium text-slate-500 dark:text-slate-400">เลขที่เอกสาร</label>
               <div className="px-3 py-2 rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-400 text-sm">สร้างอัตโนมัติ</div>
             </div>
           </div>
 
-          {/* ปิดการใช้งานชั่วคราว
-          <div>
-            <SLabel t="ประเภท : ผัก / เนื้อ หมู ไก่ / ซอส / เครื่องดื่ม / อื่นๆ *" />
-            <CheckboxGroup options={CATEGORIES} selected={categories} onChange={setCategories} />
-          </div>
+          {/* วันที่แจ้ง */}
+          <Input label="วันที่แจ้ง *" type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} />
 
-          <div className="grid grid-cols-1 gap-4">
-            <Input label="ชื่อ (Supplier Name) *" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="ชื่อผู้จำหน่าย" />
-          </div>
-
+          {/* ตารางรายการสินค้า */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <SLabel t="ตารางรายการสินค้า *" />
-              <button onClick={() => setItems(p => [...p, { code: '', name: '', qty: 1, unit: 'หน่วย', price: 0, itemNote: '' }])}
+              <SLabel t="ตารางรายการสินค้า" />
+              <button onClick={() => setItems(p => [...p, { code: '', name: '', qty: 1, unit: 'หน่วย', price: 0, itemNote: '', externalLink: '' }])}
                 className="text-xs text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1">
                 <Plus size={12} />เพิ่มรายการ
               </button>
             </div>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900">
+            <div className="rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden bg-white dark:bg-slate-900">
+              {/* Desktop */}
               <div className="hidden sm:block">
                 <div className="grid bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-400 uppercase tracking-wide"
-                  style={{ gridTemplateColumns: '80px 1fr 64px 80px 100px 1fr 36px' }}>
-                  {['Code', 'รายการ', 'จำนวน', 'หน่วย', 'ราคา', 'หมายเหตุ', ''].map((h, i) => (
+                  style={{ gridTemplateColumns: '90px 1fr 60px 70px 90px 130px 36px' }}>
+                  {['รหัสสินค้า', 'ชื่อสินค้า', 'จำนวน', 'หน่วย', 'ราคา', 'ลิงก์อ้างอิง', ''].map((h, i) => (
                     <div key={i} className={`px-2 py-2 ${i < 6 ? 'border-r border-slate-200 dark:border-slate-700' : ''} ${i >= 2 && i <= 4 ? 'text-center' : ''}`}>{h}</div>
                   ))}
                 </div>
                 <div className="divide-y divide-slate-50 dark:divide-slate-800/80">
                   {items.map((item, i) => (
-                    <div key={i} className="grid items-stretch" style={{ gridTemplateColumns: '80px 1fr 64px 80px 100px 1fr 36px' }}>
+                    <div key={i} className="grid items-stretch" style={{ gridTemplateColumns: '90px 1fr 60px 70px 90px 130px 36px' }}>
                       {[
-                        <input key="code" value={item.code} onChange={e => updateItem(i, 'code', e.target.value)} placeholder="C..."
+                        <input key="code" value={item.code} onChange={e => updateItem(i, 'code', e.target.value)}
+                          placeholder="รหัส / สินค้าใหม่"
+                          title="ใส่รหัสสินค้า หรือพิมพ์ 'สินค้าใหม่' ถ้ายังไม่มีรหัส"
                           className="w-full h-full px-2 py-2 text-xs bg-transparent outline-none text-slate-600 dark:text-slate-300 focus:bg-blue-50 dark:focus:bg-blue-900/20" />,
                         <input key="name" value={item.name} onChange={e => updateItem(i, 'name', e.target.value)} placeholder="ชื่อสินค้า"
                           className="w-full h-full px-2 py-2 text-sm bg-transparent outline-none text-slate-700 dark:text-slate-200 focus:bg-blue-50 dark:focus:bg-blue-900/20" />,
@@ -1435,8 +1541,9 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
                           className="w-full h-full px-2 py-2 text-xs text-center bg-transparent outline-none text-slate-600 dark:text-slate-300 focus:bg-blue-50 dark:focus:bg-blue-900/20" />,
                         <input key="price" type="number" value={item.price || ''} onChange={e => updateItem(i, 'price', +e.target.value)} placeholder="0"
                           className="w-full h-full px-2 py-2 text-sm text-right bg-transparent outline-none text-slate-700 dark:text-slate-200 focus:bg-blue-50 dark:focus:bg-blue-900/20" />,
-                        <input key="note" value={item.itemNote} onChange={e => updateItem(i, 'itemNote', e.target.value)} placeholder="-"
-                          className="w-full h-full px-2 py-2 text-xs bg-transparent outline-none text-slate-400 focus:bg-blue-50 dark:focus:bg-blue-900/20" />,
+                        <input key="link" value={item.externalLink || ''} onChange={e => updateItem(i, 'externalLink', e.target.value)}
+                          placeholder="https://..."
+                          className="w-full h-full px-2 py-2 text-xs bg-transparent outline-none text-blue-500 focus:bg-blue-50 dark:focus:bg-blue-900/20" />,
                         <div key="del" className="flex items-center justify-center">
                           {items.length > 1 && (
                             <button onClick={() => setItems(p => p.filter((_, idx) => idx !== i))}
@@ -1452,7 +1559,7 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
                   ))}
                 </div>
               </div>
-
+              {/* Mobile */}
               <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800">
                 {items.map((item, i) => (
                   <div key={i} className="p-3 flex flex-col gap-2">
@@ -1466,10 +1573,10 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
                         </button>
                       )}
                     </div>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] text-slate-400">Code</span>
-                        <input value={item.code} onChange={e => updateItem(i, 'code', e.target.value)} placeholder="C..."
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <div className="flex flex-col gap-0.5 col-span-1">
+                        <span className="text-[10px] text-slate-400">รหัสสินค้า</span>
+                        <input value={item.code} onChange={e => updateItem(i, 'code', e.target.value)} placeholder="รหัส / สินค้าใหม่"
                           className="px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-1 focus:ring-blue-400 text-slate-600 dark:text-slate-300" />
                       </div>
                       <div className="flex flex-col gap-0.5">
@@ -1478,27 +1585,58 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
                           className="px-2 py-1.5 text-sm text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-1 focus:ring-blue-400 text-slate-700 dark:text-slate-200" />
                       </div>
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] text-slate-400">หน่วย</span>
-                        <input value={item.unit} onChange={e => updateItem(i, 'unit', e.target.value)} placeholder="หน่วย"
-                          className="px-2 py-1.5 text-xs text-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-1 focus:ring-blue-400 text-slate-600 dark:text-slate-300" />
-                      </div>
-                      <div className="flex flex-col gap-0.5">
                         <span className="text-[10px] text-slate-400">ราคา</span>
                         <input type="number" value={item.price || ''} onChange={e => updateItem(i, 'price', +e.target.value)} placeholder="0"
                           className="px-2 py-1.5 text-sm text-right rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-1 focus:ring-blue-400 text-slate-700 dark:text-slate-200" />
                       </div>
                     </div>
+                    <input value={item.externalLink || ''} onChange={e => updateItem(i, 'externalLink', e.target.value)}
+                      placeholder="ลิงก์อ้างอิง https://..."
+                      className="px-2 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-1 focus:ring-blue-400 text-blue-500" />
                   </div>
                 ))}
               </div>
-
-              <div className="flex justify-end items-center gap-2 px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800">
-                <span className="text-xs text-slate-500 font-bold">ยอดรวมทั้งสิ้น:</span>
-                <span className="text-lg font-bold text-blue-600">฿{fmt(total)}</span>
-              </div>
+              {itemTotal > 0 && (
+                <div className="flex justify-end items-center gap-2 px-4 py-2.5 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800">
+                  <span className="text-xs text-slate-500 font-bold">ยอดรวมรายการ:</span>
+                  <span className="text-sm font-bold text-blue-600">฿{fmt(itemTotal)}</span>
+                </div>
+              )}
             </div>
+            <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><AlertCircle size={10} className="shrink-0" />ช่อง "รหัสสินค้า" ใส่รหัส METECH หรือรหัสภายใน หากยังไม่มีรหัสให้พิมพ์ "สินค้าใหม่"</p>
           </div>
-          */}
+
+          {/* รูปภาพสินค้า */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                <Image size={13} />รูปภาพสินค้า (ไม่เกิน 5 รูป)
+              </label>
+              <span className="text-xs text-slate-400">{photoUrls.length}/5</span>
+            </div>
+            {photoUrls.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                {photoUrls.map((url, i) => (
+                  <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+                    <img src={url} alt={`สินค้า ${i + 1}`} className="w-full h-full object-cover" />
+                    <button onClick={() => setPhotoUrls(p => p.filter((_, idx) => idx !== i))}
+                      className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white rounded-lg">
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {photoUrls.length < 5 && (
+              <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-md py-3 cursor-pointer transition-colors
+                ${photoUploading ? 'opacity-50 cursor-not-allowed' : 'border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10'}`}>
+                <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" disabled={photoUploading} onChange={handlePhotoUpload} />
+                <Upload size={14} className="text-slate-400" />
+                <span className="text-xs text-slate-400">{photoUploading ? 'กำลังอัปโหลด...' : 'คลิกเพื่อเพิ่มรูปภาพ'}</span>
+              </label>
+            )}
+          </div>
+
 
           <div className="pt-2">
             <FileUploadField
@@ -1530,7 +1668,7 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
               </div>
             </div>
             {/* Summary */}
-            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl px-4 py-3 border border-slate-100 dark:border-slate-700 flex flex-col gap-1.5">
+            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-md px-4 py-3 border border-slate-100 dark:border-slate-700 flex flex-col gap-1.5">
               <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
                 <span>ยอดก่อน VAT</span>
                 <span>฿{sub.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
@@ -1583,17 +1721,25 @@ function CreateRequestPage({ user, onSave, toast }: { user: User; onSave: (r: Om
 
           {/* Footer fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <Input label="ชื่อผู้ติดต่อสั่งซื้อ" value={contactName} onChange={e => setContactName(e.target.value)} placeholder="ระบุชื่อผู้ติดต่อ" />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-500 dark:text-slate-400">ชื่อผู้ติดต่อสั่งซื้อ</label>
+              <div className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 text-sm flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-[10px] font-bold text-blue-600 shrink-0">
+                  {user.name.charAt(0)}
+                </span>
+                {user.name}
+              </div>
+            </div>
             <Input label="วันที่ลงชื่อ" type="date" value={signedDate} onChange={e => setSignedDate(e.target.value)} />
           </div>
 
           {/* Buttons */}
           <div className="flex gap-3">
-            <button onClick={handleSubmit} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-200 dark:shadow-none">
+            <button onClick={handleSubmit} className="flex-1 bg-[#206bc4] hover:bg-[#1a5fad] text-white font-semibold py-3 rounded-lg transition-colors text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-200 dark:shadow-none">
               <Send size={15} />บันทึกและส่งใบขอซื้อ
             </button>
             <button onClick={handleReset}
-              className="px-6 py-3 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              className="px-6 py-3 rounded-md border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
               ล้างฟอร์ม
             </button>
           </div>
@@ -1614,7 +1760,7 @@ function PendingApprovalPage({ requests, onIssuePRPO, onReject, onView }: { requ
     <div className="page-anim flex flex-col gap-4">
       <div className="max-w-xs"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} placeholder="ค้นหาคำขอ..." /></div>
       {pending.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-16 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 py-16 text-center">
           <CheckCircle size={36} className="mx-auto text-green-400 mb-3" />
           <p className="text-slate-400 text-sm">ไม่มีรายการรออนุมัติ</p>
         </div>
@@ -1622,7 +1768,7 @@ function PendingApprovalPage({ requests, onIssuePRPO, onReject, onView }: { requ
         <>
           <div className="flex flex-col gap-3">
             {paged.map(r => (
-              <div key={r.id} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-5">
+              <div key={r.id} className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 p-5">
                 <div className="flex items-start justify-between gap-4">
                   <button onClick={() => onView(r)} className="flex-1 min-w-0 text-left hover:opacity-80 transition-opacity">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -1638,10 +1784,10 @@ function PendingApprovalPage({ requests, onIssuePRPO, onReject, onView }: { requ
                     <div className="text-sm font-bold text-blue-600 mt-2">฿{fmt(r.totalAmount)}</div>
                   </button>
                   <div className="flex flex-col gap-2 shrink-0">
-                    <button onClick={() => onIssuePRPO(r)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition-colors whitespace-nowrap">
+                    <button onClick={() => onIssuePRPO(r)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-semibold hover:bg-blue-700 transition-colors whitespace-nowrap">
                       <FileCheck size={13} />ออก PR/PO
                     </button>
-                    <button onClick={() => onReject(r)} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-xs font-semibold hover:bg-red-100 transition-colors whitespace-nowrap">
+                    <button onClick={() => onReject(r)} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-md text-xs font-semibold hover:bg-red-100 transition-colors whitespace-nowrap">
                       <XCircle size={13} />ปฏิเสธ
                     </button>
                   </div>
@@ -1717,7 +1863,7 @@ function IssuePRPOPage({ requests, onIssue, toast }: { requests: PurchaseRequest
           </Sel>
 
           {sel && (
-            <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 text-xs space-y-1.5 border border-slate-100 dark:border-slate-700">
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-md p-4 text-xs space-y-1.5 border border-slate-100 dark:border-slate-700">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{sel.title}</span>
                 {isDraft && <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 px-1.5 py-0.5 rounded-full">แบบร่าง</span>}
@@ -1752,11 +1898,11 @@ function IssuePRPOPage({ requests, onIssue, toast }: { requests: PurchaseRequest
 
           <div className="flex gap-2">
             <button onClick={handleSaveDraft}
-              className="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2.5 rounded-xl transition-colors text-sm hover:bg-slate-200 dark:hover:bg-slate-600">
+              className="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2.5 rounded-md transition-colors text-sm hover:bg-slate-200 dark:hover:bg-slate-600">
               บันทึกแบบร่าง
             </button>
             <button onClick={handleSave} disabled={!hasPR || !hasPO}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+              className="flex-1 bg-[#206bc4] hover:bg-[#1a5fad] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg transition-colors text-sm flex items-center justify-center gap-2">
               <FileCheck size={15} />บันทึกครบ ✓
             </button>
           </div>
@@ -1788,16 +1934,16 @@ function ForwardAccountingPage({ requests, onForward, onAddFile }: {
         <span className="text-xs text-slate-400">{ready.length} รายการ</span>
       </div>
       {all.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-16 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 py-16 text-center">
           <CheckCircle size={36} className="mx-auto text-green-400 mb-3" />
           <p className="text-slate-400 text-sm">ไม่มีรายการรอส่งต่อบัญชี</p>
         </div>
       ) : ready.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-12 text-center text-slate-400 text-sm">ไม่พบรายการที่ค้นหา</div>
+        <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 py-12 text-center text-slate-400 text-sm">ไม่พบรายการที่ค้นหา</div>
       ) : ready.map(r => {
         const hasAll = !!r.prFile && !!r.poFile;
         return (
-          <div key={r.id} className={`bg-white dark:bg-slate-900 rounded-2xl border p-5 flex items-center justify-between gap-4 ${!hasAll ? 'border-amber-200 dark:border-amber-700' : 'border-slate-100 dark:border-slate-800'}`}>
+          <div key={r.id} className={`bg-white dark:bg-slate-900 rounded-md border p-5 flex items-center justify-between gap-4 ${!hasAll ? 'border-amber-200 dark:border-amber-700' : 'border-slate-100 dark:border-slate-800'}`}>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap mb-0.5">
                 <span className="text-xs font-mono text-slate-400">{r.reqNo}</span>
@@ -1819,12 +1965,12 @@ function ForwardAccountingPage({ requests, onForward, onAddFile }: {
             </div>
             <div className="flex gap-2 shrink-0">
               {!hasAll && (
-                <button onClick={() => onAddFile(r)} className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 text-white rounded-xl text-xs font-semibold hover:bg-amber-600 transition-colors">
+                <button onClick={() => onAddFile(r)} className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 text-white rounded-md text-xs font-semibold hover:bg-amber-600 transition-colors">
                   <Upload size={13} />แนบไฟล์
                 </button>
               )}
               <button onClick={() => onForward(r)} disabled={!hasAll}
-                className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-xl text-xs font-semibold hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-md text-xs font-semibold hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 <Send size={13} />ส่งต่อบัญชี
               </button>
             </div>
@@ -1843,11 +1989,23 @@ function PaymentListPage({ requests, onRecord }: { requests: PurchaseRequest[]; 
     .filter(r => r.status === 'accounting')
     .filter(r => !search || r.title.toLowerCase().includes(search.toLowerCase()) || r.reqNo.includes(search)));
 
-  const dueBadge = (due: string) => {
+  const resolveDueDate = (due: string): string | null => {
     if (!due) return null;
-    if (due < today) return <span className="text-[10px] font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-full">เกินกำหนด</span>;
-    if (due === today) return <span className="text-[10px] font-semibold text-orange-600 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-1.5 py-0.5 rounded-full">ครบกำหนดวันนี้</span>;
-    const diff = Math.ceil((new Date(due).getTime() - new Date(today).getTime()) / 86400000);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(due)) return due;
+    const m = due.match(/วันที่\s*(\d+)/);
+    if (!m) return null;
+    const day = parseInt(m[1]);
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth(), day);
+    if (d.getTime() < now.getTime()) d.setMonth(d.getMonth() + 1);
+    return d.toISOString().slice(0, 10);
+  };
+  const dueBadge = (due: string) => {
+    const resolved = resolveDueDate(due);
+    if (!resolved) return null;
+    if (resolved < today) return <span className="text-[10px] font-semibold text-red-600 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-1.5 py-0.5 rounded-full">เกินกำหนด</span>;
+    if (resolved === today) return <span className="text-[10px] font-semibold text-orange-600 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-1.5 py-0.5 rounded-full">ครบกำหนดวันนี้</span>;
+    const diff = Math.ceil((new Date(resolved).getTime() - new Date(today).getTime()) / 86400000);
     if (diff <= 3) return <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded-full">อีก {diff} วัน</span>;
     return null;
   };
@@ -1868,12 +2026,12 @@ function PaymentListPage({ requests, onRecord }: { requests: PurchaseRequest[]; 
         <span className="text-xs text-slate-400">{waiting.length} รายการ</span>
       </div>
       {waiting.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-16 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 py-16 text-center">
           <CheckCircle size={36} className="mx-auto text-green-400 mb-3" />
           <p className="text-slate-400 text-sm">ไม่มีรายการรอโอนเงิน</p>
         </div>
       ) : waiting.map(r => (
-        <div key={r.id} className={`bg-white dark:bg-slate-900 rounded-2xl border p-5 flex items-center justify-between gap-4 ${r.dueDate && r.dueDate <= today ? 'border-red-200 dark:border-red-800' : 'border-slate-100 dark:border-slate-800'}`}>
+        <div key={r.id} className={`bg-white dark:bg-slate-900 rounded-md border p-5 flex items-center justify-between gap-4 ${r.dueDate && r.dueDate <= today ? 'border-red-200 dark:border-red-800' : 'border-slate-100 dark:border-slate-800'}`}>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-0.5">
               <span className="text-xs font-mono text-slate-400">{r.reqNo}</span>
@@ -1889,7 +2047,7 @@ function PaymentListPage({ requests, onRecord }: { requests: PurchaseRequest[]; 
             </div>
             <div className="text-sm font-bold text-blue-600 mt-1.5">฿{fmt(r.totalAmount)}</div>
           </div>
-          <button onClick={() => onRecord(r)} className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-xl text-xs font-semibold hover:bg-green-700 transition-colors shrink-0">
+          <button onClick={() => onRecord(r)} className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-md text-xs font-semibold hover:bg-green-700 transition-colors shrink-0">
             <CreditCard size={13} />บันทึกโอนเงิน
           </button>
         </div>
@@ -1926,7 +2084,7 @@ function RecordPaymentPage({ requests, onTransfer, toast }: { requests: Purchase
           <Input label="วันที่โอน *" type="date" value={date} onChange={e => setDate(e.target.value)} />
           <Textarea label="หมายเหตุ" value={notes} onChange={e => setNotes(e.target.value)} rows={2} />
           <FileUploadField label="แนบสลิปการโอน" fileName={slipName} onFile={(name, url) => { setSlipName(name); setSlipUrl(url); }} onError={msg => toast(msg, 'error')} />
-          <button onClick={handle} className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+          <button onClick={handle} className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm flex items-center justify-center gap-2">
             <Banknote size={15} />บันทึกการโอนเงิน
           </button>
         </div>
@@ -1944,7 +2102,7 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
   const { key: sk, dir: sd, toggle: stoggle, sort: ssort } = useSort<PurchaseRequest>('transferDate');
 
   const done = ssort(requests.filter(r => {
-    if (r.status !== 'transferred') return false;
+    if (!['transferred', 'received'].includes(r.status)) return false;
     if (search && !r.title.toLowerCase().includes(search.toLowerCase()) && !(r.transferRef || '').includes(search)) return false;
     if (dateFrom && (r.transferDate || '') < dateFrom) return false;
     if (dateTo && (r.transferDate || '') > dateTo) return false;
@@ -1976,11 +2134,12 @@ function PaymentHistoryPage({ requests }: { requests: PurchaseRequest[] }) {
             className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20" />
           {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(1); }} className="text-slate-400 hover:text-red-500"><X size={12} /></button>}
         </div>
-        <div className="text-xs text-slate-500 bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 px-3 py-1.5 rounded-xl">
+        <div className="text-xs text-slate-500 bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 px-3 py-1.5 rounded-md">
           ยอดรวม: <span className="font-bold text-green-600">฿{fmt(totalAmt)}</span>
         </div>
-        <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors">
-          <Download size={12} />Export CSV
+        <button onClick={exportCSV} title="Export CSV" aria-label="Export CSV"
+          className="w-8 h-8 inline-flex items-center justify-center bg-slate-700 hover:bg-slate-800 text-white rounded-sm transition-colors">
+          <Download size={15} />
         </button>
       </div>
       <Card>
@@ -2029,18 +2188,18 @@ function AllRequestsPage({ requests }: { requests: PurchaseRequest[] }) {
     <div className="page-anim flex flex-col gap-4">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex-1 min-w-[180px] max-w-xs"><SearchBar value={search} onChange={v => { setSearch(v); setPage(1); }} /></div>
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุกสถานะ</option>
           {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <select value={filterCat} onChange={e => { setFilterCat(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+        <select value={filterCat} onChange={e => { setFilterCat(e.target.value); setPage(1); }} className="px-3 py-2 text-sm rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุกหมวด</option>
           {cats.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         <span className="text-xs text-slate-400">{filtered.length} รายการ</span>
-        <button onClick={() => api.requests.exportExcel(filterStatus || undefined).catch(() => { })}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors ml-auto">
-          <Download size={13} />Export Excel
+        <button onClick={() => api.requests.exportExcel(filterStatus || undefined).catch(() => { })} title="Export Excel" aria-label="Export Excel"
+          className="ml-auto w-8 h-8 inline-flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm transition-colors">
+          <Download size={15} />
         </button>
       </div>
       <Card>
@@ -2089,12 +2248,12 @@ function UserManagementPage({ users, onAdd, onEdit, onDelete, onReset, toast }: 
     <div className="page-anim flex flex-col gap-4">
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex-1 max-w-xs"><SearchBar value={search} onChange={setSearch} placeholder="ค้นหาผู้ใช้..." /></div>
-        <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+        <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="px-3 py-2 text-sm rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
           <option value="">ทุก Role</option>
           {Object.entries(ROLE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
         <span className="text-xs text-slate-400">{filtered.length} คน</span>
-        <button onClick={onAdd} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors ml-auto">
+        <button onClick={onAdd} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition-colors ml-auto">
           <UserPlus size={15} />เพิ่มผู้ใช้
         </button>
       </div>
@@ -2112,7 +2271,7 @@ function UserManagementPage({ users, onAdd, onEdit, onDelete, onReset, toast }: 
             <tr key={u.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold text-xs shrink-0">{u.name.charAt(0)}</div>
+                  <div className="w-8 h-8 rounded-md bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold text-xs shrink-0">{u.name.charAt(0)}</div>
                   <div>
                     <div className="text-sm font-medium text-slate-700 dark:text-slate-200">{u.name}</div>
                     <div className="text-xs text-slate-400">@{u.username}</div>
@@ -2169,7 +2328,7 @@ function AddUserPage({ editUser, onSave }: { editUser?: User | null; onSave: (d:
             <span className="text-xs text-slate-500">{active ? 'ใช้งาน' : 'ระงับ'}</span>
           </div>
           <button onClick={() => onSave({ name, username, email, role, password: password || editUser?.password, active })}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+            className="bg-[#206bc4] hover:bg-[#1a5fad] text-white font-semibold py-2.5 rounded-lg transition-colors text-sm flex items-center justify-center gap-2">
             <Shield size={15} />{editUser ? 'บันทึกการแก้ไข' : 'เพิ่มผู้ใช้'}
           </button>
         </div>
@@ -2237,12 +2396,12 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
     const a = document.createElement('a'); a.href = url; a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(url);
   };
 
-  const selCls = 'px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20';
+  const selCls = 'px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-300 outline-none focus:ring-2 focus:ring-blue-500/20';
 
   return (
     <div className="page-anim flex flex-col gap-4">
       {/* Filter bar */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 flex flex-col gap-3">
+      <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1.5"><Filter size={12} />ตัวกรอง</span>
           {hasFilter && <button onClick={clearAll} className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors"><X size={11} />ล้างทั้งหมด</button>}
@@ -2284,8 +2443,9 @@ function AuditLogPage({ logs }: { logs: AuditLog[] }) {
             </button>
           ))}
         </div>
-        <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors">
-          <Download size={12} />Export CSV
+        <button onClick={exportCSV} title="Export CSV" aria-label="Export CSV"
+          className="w-8 h-8 inline-flex items-center justify-center bg-slate-700 hover:bg-slate-800 text-white rounded-sm transition-colors">
+          <Download size={15} />
         </button>
       </div>
       <Card>
@@ -2392,8 +2552,8 @@ function ReportsPage({ requests }: { requests: PurchaseRequest[] }) {
   return (
     <div className="page-anim flex flex-col gap-5">
       {/* Period selector */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+      <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 p-4 flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-md p-1">
           {(['all', 'day', 'month', 'year'] as const).map(p => (
             <button key={p} onClick={() => setPeriod(p)} className={tabCls(p)}>
               {p === 'all' ? 'ทั้งหมด' : p === 'day' ? 'รายวัน' : p === 'month' ? 'รายเดือน' : 'รายปี'}
@@ -2403,23 +2563,24 @@ function ReportsPage({ requests }: { requests: PurchaseRequest[] }) {
 
         {period === 'day' && (
           <input type="date" value={selDate} onChange={e => setSelDate(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20" />
+            className="px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20" />
         )}
         {period === 'month' && (
           <input type="month" value={selMonth} onChange={e => setSelMonth(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20" />
+            className="px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20" />
         )}
         {period === 'year' && (
           <select value={selYear} onChange={e => setSelYear(+e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20">
+            className="px-3 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20">
             {yearOptions.map(y => <option key={y} value={y}>ปี {THAI_YEAR(y)}</option>)}
           </select>
         )}
 
         <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 ml-1">{periodLabel}</span>
         <span className="text-xs text-slate-400 ml-auto">{filtered.length} รายการ</span>
-        <button onClick={exportCSV} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold transition-colors">
-          <Download size={12} />Export CSV
+        <button onClick={exportCSV} title="Export CSV" aria-label="Export CSV"
+          className="w-8 h-8 inline-flex items-center justify-center bg-slate-700 hover:bg-slate-800 text-white rounded-sm transition-colors">
+          <Download size={15} />
         </button>
       </div>
 
@@ -2431,7 +2592,7 @@ function ReportsPage({ requests }: { requests: PurchaseRequest[] }) {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-16 text-center">
+        <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 py-16 text-center">
           <CalendarDays size={36} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
           <p className="text-slate-400 text-sm">ไม่มีข้อมูลในช่วงเวลานี้</p>
         </div>
@@ -2606,21 +2767,21 @@ function TrackingPage({ requests, user, onView }: {
         {allCounts.map(s => (
           <button key={s.key}
             onClick={() => { setFilterStatus(filterStatus === s.key ? '' : s.key); setFilterOverdue(false); setPage(1); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 transition-all hover:shadow-sm ${filterStatus === s.key ? 'ring-2 ring-blue-400 ring-offset-1' : ''}`}>
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 transition-all hover:shadow-sm ${filterStatus === s.key ? 'ring-2 ring-blue-400 ring-offset-1' : ''}`}>
             <StatusBadge status={s.key} />
             <span className="text-xs font-bold text-slate-600 dark:text-slate-300">{s.count}</span>
           </button>
         ))}
         {overdueCount > 0 && (
           <button onClick={() => { setFilterOverdue(!filterOverdue); setFilterStatus(''); setPage(1); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all hover:shadow-sm ${filterOverdue ? 'bg-red-500 border-red-500 text-white' : 'bg-white dark:bg-slate-900 border-red-200 dark:border-red-800 text-red-500'}`}>
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-all hover:shadow-sm ${filterOverdue ? 'bg-red-500 border-red-500 text-white' : 'bg-white dark:bg-slate-900 border-red-200 dark:border-red-800 text-red-500'}`}>
             <AlertCircle size={12} />
             <span className="text-xs font-bold">เกินกำหนด {overdueCount}</span>
           </button>
         )}
         {(filterStatus || filterCat || filterOverdue) && (
           <button onClick={() => { setFilterStatus(''); setFilterCat(''); setFilterOverdue(false); setPage(1); }}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors">
+            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 transition-colors">
             <X size={11} />ล้างทั้งหมด
           </button>
         )}
@@ -2633,7 +2794,7 @@ function TrackingPage({ requests, user, onView }: {
         </div>
         {cats.length > 0 && (
           <select value={filterCat} onChange={e => { setFilterCat(e.target.value); setPage(1); }}
-            className="px-3 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
+            className="px-3 py-2 text-sm rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none">
             <option value="">ทุกหมวด</option>
             {cats.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
@@ -2646,15 +2807,15 @@ function TrackingPage({ requests, user, onView }: {
           {sortBtn('dueDate', 'วันครบกำหนด')}
         </div>
         <span className="text-xs text-slate-400">{visible.length} รายการ</span>
-        <button onClick={() => api.requests.exportExcel(filterStatus || undefined).catch(() => { })}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors ml-auto">
-          <Download size={13} />Export Excel
+        <button onClick={() => api.requests.exportExcel(filterStatus || undefined).catch(() => { })} title="Export Excel" aria-label="Export Excel"
+          className="ml-auto w-8 h-8 inline-flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-sm transition-colors">
+          <Download size={15} />
         </button>
       </div>
 
       {/* Cards */}
       {visible.length === 0 ? (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 py-16 text-center text-slate-400 text-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 py-16 text-center text-slate-400 text-sm">
           ไม่พบรายการ
         </div>
       ) : (
@@ -2663,7 +2824,7 @@ function TrackingPage({ requests, user, onView }: {
             const steps = getSteps(r);
             return (
               <div key={r.id} onClick={() => onView(r)}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 p-4 sm:p-5 hover:shadow-md hover:border-blue-200 dark:hover:border-blue-700 transition-all cursor-pointer">
+                className="bg-white dark:bg-slate-900 rounded-md border border-slate-100 dark:border-slate-800 p-4 sm:p-5 hover:shadow-md hover:border-blue-200 dark:hover:border-blue-700 transition-all cursor-pointer">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3 mb-5">
                   <div className="min-w-0">
@@ -2690,7 +2851,7 @@ function TrackingPage({ requests, user, onView }: {
                 </div>
 
                 {/* Timeline */}
-                <div className="flex items-start">
+                <div className="flex items-start overflow-x-auto pb-1 -mx-1 px-1">
                   {steps.map((step, i) => (
                     <React.Fragment key={i}>
                       <div className="flex flex-col items-center min-w-0 flex-1">
@@ -2783,9 +2944,9 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
     <Modal open title={`${req.reqNo} — รายละเอียด`} onClose={onClose}>
       <div className="space-y-4 text-sm">
         {/* Tracking Timeline */}
-        <div className="bg-slate-50 dark:bg-slate-800/60 rounded-xl p-4">
+        <div className="bg-slate-50 dark:bg-slate-800/60 rounded-md p-4">
           <div className="text-[11px] text-slate-400 font-medium mb-3">สถานะการดำเนินการ</div>
-          <div className="flex items-start">
+          <div className="flex items-start overflow-x-auto pb-1 -mx-1 px-1">
             {steps.map((step, i) => (
               <React.Fragment key={i}>
                 <div className="flex flex-col items-center min-w-0 flex-1">
@@ -2810,7 +2971,8 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
         <div className="flex items-center gap-2 flex-wrap"><StatusBadge status={req.status} /></div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
           {[
-            ['ชื่อรายการ', req.title], ['หมวดหมู่', req.category],
+            ['ชื่อรายการ', req.title],
+            ['สาขา', req.branch || 'HQ'],
             ['ผู้ขอ', req.createdByName], ['วันที่สร้าง', req.createdAt],
             ...(req.dueDate ? [['วันที่ต้องชำระ', req.dueDate]] : []),
             ...(req.prNo ? [['PR No.', req.prNo]] : []),
@@ -2820,18 +2982,54 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
           ].map(([label, val], i) => (
             <div key={i}>
               <div className="text-[11px] text-slate-400 font-medium mb-0.5">{label}</div>
-              <div className="text-slate-700 dark:text-slate-200 font-medium">{val}</div>
+              <div className="text-slate-700 dark:text-slate-200 font-medium flex items-center gap-1">
+                {label === 'สาขา' && <MapPin size={11} className="text-slate-400" />}
+                {val}
+              </div>
             </div>
           ))}
         </div>
 
-        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3.5">
+        {/* รูปภาพสินค้า (จากการขอซื้อ) */}
+        {req.requestPhotos && (() => {
+          try {
+            const photos: string[] = JSON.parse(req.requestPhotos);
+            return photos.length > 0 ? (
+              <div>
+                <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Image size={11} />รูปภาพสินค้าที่สั่งซื้อ
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                  {photos.map((url, i) => (
+                    <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                      className="aspect-square rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 block hover:opacity-80 transition-opacity">
+                      <img src={url} alt={`สินค้า ${i + 1}`} className="w-full h-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null;
+          } catch { return null; }
+        })()}
+
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-md p-3.5">
           <div className="text-[11px] text-slate-400 font-medium mb-2">รายการสินค้า</div>
-          <div className="space-y-1">
+          <div className="space-y-2">
             {(req.items ?? []).map((it, i) => (
-              <div key={i} className="flex justify-between text-xs text-slate-600 dark:text-slate-400">
-                <span>{it.name} × {it.qty} {it.unit}</span>
-                <span className="font-medium">฿{fmt(it.qty * it.price)}</span>
+              <div key={i} className="flex flex-col gap-0.5">
+                <div className="flex justify-between text-xs text-slate-600 dark:text-slate-400">
+                  <span className="flex items-center gap-1.5">
+                    {it.code && <span className="bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[10px] px-1.5 py-0.5 rounded font-mono">{it.code}</span>}
+                    {it.name} × {it.qty} {it.unit}
+                  </span>
+                  <span className="font-medium">฿{fmt(it.qty * it.price)}</span>
+                </div>
+                {it.externalLink && (
+                  <a href={it.externalLink} target="_blank" rel="noopener noreferrer"
+                    className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-1 truncate">
+                    <ExternalLink size={9} />{it.externalLink}
+                  </a>
+                )}
               </div>
             ))}
           </div>
@@ -2847,7 +3045,7 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
           </div>
         )}
         {req.notes && (
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl p-3">
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-md p-3">
             <div className="text-[11px] text-amber-600 dark:text-amber-400 font-medium mb-0.5">หมายเหตุ</div>
             <p className="text-slate-600 dark:text-slate-400 text-xs">{req.notes}</p>
           </div>
@@ -2898,7 +3096,7 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
           </div>
         )}
         {req.receivedAt && (
-          <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 rounded-xl p-3 space-y-2">
+          <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 rounded-md p-3 space-y-2">
             <div className="text-[11px] text-green-600 dark:text-green-400 font-medium">รับสินค้าแล้ว — วันที่: {req.receivedAt}</div>
             {req.productPhotos && (() => {
               try {
@@ -2906,7 +3104,7 @@ function RequestDetailModal({ req, onClose }: { req: PurchaseRequest | null; onC
                 return photos.length > 0 ? (
                   <div>
                     <div className="text-[10px] text-slate-400 mb-1.5">รูปภาพสินค้า</div>
-                    <div className="grid grid-cols-4 gap-1.5">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
                       {photos.map((url, i) => (
                         <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="aspect-square rounded-lg overflow-hidden border border-green-200 dark:border-green-700 bg-slate-50 dark:bg-slate-800 block hover:opacity-80 transition-opacity">
                           <img src={url} alt={`สินค้า ${i + 1}`} className="w-full h-full object-cover" />
@@ -2948,11 +3146,16 @@ function DiscordSettingsPage({ current, onSave, toast }: {
     discordOnTransferred: current.discordOnTransferred ?? true,
     discordOnRejected: current.discordOnRejected ?? true,
     discordOnReceived: current.discordOnReceived ?? true,
+    discordOnLogin: current.discordOnLogin ?? false,
+    discordOnLogout: current.discordOnLogout ?? false,
+    discordOnPasswordReset: current.discordOnPasswordReset ?? false,
   });
   const [reportEnabled, setReportEnabled] = useState(current.discordReportEnabled ?? false);
   const [reportTime, setReportTime] = useState(current.discordReportTime || '08:00');
   const [botToken, setBotToken] = useState(current.discordBotToken || '');
   const [channelId, setChannelId] = useState(current.discordChannelId || '');
+  const [securityWebhook, setSecurityWebhook] = useState(current.discordSecurityWebhook || '');
+  const [securityChannelId, setSecurityChannelId] = useState(current.discordSecurityChannelId || '');
   const [botOnline, setBotOnline] = useState(false);
   const [testing, setTesting] = useState(false);
   const [sendingReport, setSendingReport] = useState(false);
@@ -2960,13 +3163,38 @@ function DiscordSettingsPage({ current, onSave, toast }: {
   const [botReportLoading, setBotReportLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  type RolePerm = { roleId: string; roleName: string; buttons: string[] };
+  const ALL_BTNS = [
+    { id: 'report_refresh', label: 'รีเฟรช' },
+    { id: 'report_daily', label: 'ยอดวันนี้' },
+    { id: 'report_monthly', label: 'ยอดเดือนนี้' },
+    { id: 'report_pending', label: 'รายการค้าง' },
+    { id: 'report_overdue', label: 'เกินกำหนด' },
+  ];
+  const parsePerms = (raw?: string | null): RolePerm[] => {
+    if (!raw) return [];
+    try {
+      const obj: Record<string, any> = JSON.parse(raw);
+      return Object.entries(obj).map(([roleId, v]) => ({
+        roleId,
+        roleName: typeof v === 'object' && v.name ? v.name : roleId,
+        buttons: typeof v === 'object' && v.buttons ? v.buttons : (Array.isArray(v) ? v : ['*']),
+      }));
+    } catch { return []; }
+  };
+  const [rolePerms, setRolePerms] = useState<RolePerm[]>(() => parsePerms(current.discordRolePerms));
+  const [newRoleId, setNewRoleId] = useState('');
+  const [newRoleName, setNewRoleName] = useState('');
+
   useEffect(() => {
     api.settings.botStatus().then(r => setBotOnline(r.online)).catch(() => { });
-    // โหลด secure settings เพื่อดึง webhook/token ที่ซ่อนจาก public endpoint
     api.settings.getSecure().then(s => {
       if (s.discordWebhook) setWebhook(s.discordWebhook);
       if (s.discordBotToken) setBotToken(s.discordBotToken);
       if (s.discordChannelId) setChannelId(s.discordChannelId);
+      if (s.discordSecurityWebhook) setSecurityWebhook(s.discordSecurityWebhook);
+      if (s.discordSecurityChannelId) setSecurityChannelId(s.discordSecurityChannelId);
+      if (s.discordRolePerms) setRolePerms(parsePerms(s.discordRolePerms));
     }).catch(() => { });
   }, []);
 
@@ -2979,6 +3207,11 @@ function DiscordSettingsPage({ current, onSave, toast }: {
     { key: 'discordOnTransferred', label: 'โอนเงินสำเร็จ', desc: 'เมื่อบัญชีบันทึกการโอนเงิน' },
     { key: 'discordOnRejected', label: 'ปฏิเสธคำขอ', desc: 'เมื่อใบขอซื้อถูกปฏิเสธ' },
     { key: 'discordOnReceived', label: 'รับสินค้าแล้ว', desc: 'เมื่อพนักงานกดยืนยันรับสินค้า' },
+  ];
+  const securityEventList: { key: keyof typeof events; label: string; desc: string; icon: React.ElementType }[] = [
+    { key: 'discordOnLogin', label: 'เข้าสู่ระบบ', desc: 'เมื่อผู้ใช้ login สำเร็จ', icon: KeyRound },
+    { key: 'discordOnLogout', label: 'ออกจากระบบ', desc: 'เมื่อผู้ใช้ logout', icon: LogOut },
+    { key: 'discordOnPasswordReset', label: 'Reset Password', desc: 'เมื่อ IT Support reset รหัสผ่านให้ผู้ใช้', icon: KeyRound },
   ];
 
   const handleBotToggle = async () => {
@@ -3012,10 +3245,15 @@ function DiscordSettingsPage({ current, onSave, toast }: {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const permsObj: Record<string, any> = {};
+      rolePerms.forEach(r => { permsObj[r.roleId] = { name: r.roleName, buttons: r.buttons }; });
       const updated = await api.settings.update({
         discordWebhook: webhook || null, ...events,
         discordReportEnabled: reportEnabled, discordReportTime: reportTime,
         discordBotToken: botToken || null, discordChannelId: channelId || null,
+        discordSecurityWebhook: securityWebhook || null,
+        discordSecurityChannelId: securityChannelId || null,
+        discordRolePerms: rolePerms.length ? JSON.stringify(permsObj) : null,
       });
       onSave(updated);
       toast('บันทึกการตั้งค่า Discord สำเร็จ');
@@ -3053,21 +3291,54 @@ function DiscordSettingsPage({ current, onSave, toast }: {
             <Input label="Webhook URL *" value={webhook} onChange={e => setWebhook(e.target.value)} placeholder="https://discord.com/api/webhooks/..." />
           </div>
           <button onClick={handleTest} disabled={testing || !webhook.trim()}
-            className="self-start flex items-center gap-1.5 px-4 py-2 border border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors disabled:opacity-50">
+            className="self-start flex items-center gap-1.5 px-4 py-2 border border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 rounded-md text-xs font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors disabled:opacity-50">
             {testing ? <RefreshCw size={12} className="animate-spin" /> : <MessageSquare size={12} />}
             ทดสอบส่งข้อความ
           </button>
         </div>
       </Card>
 
-      {/* Event toggles */}
-      <Card title="แจ้งเตือน Event">
+      {/* Workflow event toggles */}
+      <Card title="แจ้งเตือน Workflow">
         <div className="divide-y divide-slate-50 dark:divide-slate-800">
           {eventList.map(ev => (
             <div key={ev.key} className="flex items-center justify-between px-5 py-3.5">
               <div>
                 <div className="text-sm font-medium text-slate-700 dark:text-slate-200">{ev.label}</div>
                 <div className="text-xs text-slate-400 mt-0.5">{ev.desc}</div>
+              </div>
+              <Toggle on={events[ev.key]} onToggle={() => toggleEvt(ev.key)} />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Security event toggles — IT only */}
+      <Card title="แจ้งเตือนความปลอดภัย (IT เท่านั้น)">
+        <div className="px-5 pt-4 pb-1 flex flex-col gap-3">
+          <div className="flex items-start gap-2 text-xs text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-md px-3 py-2.5 border border-blue-100 dark:border-blue-800">
+            <Shield size={12} className="shrink-0 mt-0.5" />
+            <span>ส่งไปยัง Webhook แยก เพื่อให้เห็นเฉพาะช่อง IT — ถ้าไม่กรอก จะใช้ Webhook หลัก</span>
+          </div>
+          <Input label="Security Webhook URL" value={securityWebhook} onChange={e => setSecurityWebhook(e.target.value)}
+            placeholder="https://discord.com/api/webhooks/... (ช่อง IT เท่านั้น)" />
+          <div>
+            <div className="text-xs text-slate-500 mb-1">วิธีดู Channel ID: Discord (Developer Mode) → คลิกขวาที่ช่อง → Copy Channel ID</div>
+            <Input label="Security Channel ID (สำหรับ Bot)" value={securityChannelId} onChange={e => setSecurityChannelId(e.target.value)}
+              placeholder="1234567890123456789" />
+          </div>
+        </div>
+        <div className="divide-y divide-slate-50 dark:divide-slate-800">
+          {securityEventList.map(ev => (
+            <div key={ev.key} className="flex items-center justify-between px-5 py-3.5">
+              <div className="flex items-start gap-3">
+                <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 mt-0.5">
+                  <ev.icon size={14} className="text-slate-500 dark:text-slate-400" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-200">{ev.label}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">{ev.desc}</div>
+                </div>
               </div>
               <Toggle on={events[ev.key]} onToggle={() => toggleEvt(ev.key)} />
             </div>
@@ -3095,7 +3366,7 @@ function DiscordSettingsPage({ current, onSave, toast }: {
           )}
           <div className="px-5 py-3.5">
             <button onClick={handleSendReport} disabled={sendingReport || !webhook.trim()}
-              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-xl text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors disabled:opacity-50">
+              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-md text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors disabled:opacity-50">
               {sendingReport ? <RefreshCw size={12} className="animate-spin" /> : <Download size={12} />}
               ส่งรายงานตอนนี้เลย
             </button>
@@ -3108,7 +3379,7 @@ function DiscordSettingsPage({ current, onSave, toast }: {
       <Card title="Discord Bot (Interactive)">
         <div className="p-5 flex flex-col gap-4">
           {/* Status */}
-          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-md bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
             <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${botOnline ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
             <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
               {botOnline ? 'Bot ออนไลน์ — พร้อมรับคำสั่ง' : 'Bot ออฟไลน์'}
@@ -3138,7 +3409,7 @@ function DiscordSettingsPage({ current, onSave, toast }: {
           </div>
 
           {/* Permissions note */}
-          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2.5 border border-amber-100 dark:border-amber-800">
+          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-md px-3 py-2.5 border border-amber-100 dark:border-amber-800">
             <AlertCircle size={12} className="shrink-0 mt-0.5" />
             <span>Bot ต้องมีสิทธิ์ <strong>Send Messages</strong> และ <strong>Use Application Commands</strong> ในช่องนั้น รวมถึง Scopes: <strong>bot</strong></span>
           </div>
@@ -3146,7 +3417,7 @@ function DiscordSettingsPage({ current, onSave, toast }: {
           {/* Send report with buttons */}
           <div className="border-t border-slate-100 dark:border-slate-700 pt-3">
             <button onClick={handleBotReport} disabled={botReportLoading || !botOnline || !channelId.trim()}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50">
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50">
               {botReportLoading ? <RefreshCw size={12} className="animate-spin" /> : <MessageSquare size={12} />}
               ส่งรายงานพร้อมปุ่มไปยัง Discord
             </button>
@@ -3155,8 +3426,88 @@ function DiscordSettingsPage({ current, onSave, toast }: {
         </div>
       </Card>
 
+      {/* Discord Role Permissions */}
+      <Card title="สิทธิ์ตามยศ Discord (Role Permissions)">
+        <div className="p-5 flex flex-col gap-4">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            กำหนดว่ายศ Discord ไหนใช้ปุ่มอะไรได้บ้าง ถ้าไม่ตั้งค่า → ทุกคนใช้ได้ทุกปุ่ม
+          </p>
+
+          {/* Existing roles */}
+          {rolePerms.length > 0 && (
+            <div className="flex flex-col gap-3">
+              {rolePerms.map((rp, ri) => (
+                <div key={ri} className="border border-slate-200 dark:border-slate-700 rounded-md p-3 flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-3 h-3 rounded-full bg-indigo-400 shrink-0" />
+                      <span className="text-sm font-semibold text-slate-700 dark:text-slate-200 truncate">{rp.roleName || rp.roleId}</span>
+                      <span className="text-[10px] text-slate-400 font-mono hidden sm:block">({rp.roleId})</span>
+                    </div>
+                    <button onClick={() => setRolePerms(p => p.filter((_, i) => i !== ri))}
+                      className="text-red-400 hover:text-red-600 shrink-0"><X size={14} /></button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {/* ทุกปุ่ม checkbox */}
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <input type="checkbox"
+                        checked={rp.buttons.includes('*')}
+                        onChange={e => setRolePerms(p => p.map((x, i) => i === ri ? { ...x, buttons: e.target.checked ? ['*'] : [] } : x))}
+                        className="w-3.5 h-3.5 accent-indigo-600" />
+                      <span className="text-xs font-bold text-indigo-600">ทุกปุ่ม</span>
+                    </label>
+                    {!rp.buttons.includes('*') && ALL_BTNS.map(btn => (
+                      <label key={btn.id} className="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input type="checkbox"
+                          checked={rp.buttons.includes(btn.id)}
+                          onChange={e => setRolePerms(p => p.map((x, i) => i === ri ? {
+                            ...x,
+                            buttons: e.target.checked ? [...x.buttons, btn.id] : x.buttons.filter(b => b !== btn.id)
+                          } : x))}
+                          className="w-3.5 h-3.5 accent-indigo-600" />
+                        <span className="text-xs text-slate-600 dark:text-slate-300">{btn.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add new role */}
+          <div className="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="text-xs font-medium text-slate-500 dark:text-slate-400">เพิ่มยศใหม่</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input value={newRoleId} onChange={e => setNewRoleId(e.target.value)}
+                placeholder="Role ID (คลิกขวายศ → Copy ID)"
+                className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 dark:text-slate-200" />
+              <input value={newRoleName} onChange={e => setNewRoleName(e.target.value)}
+                placeholder="ชื่อยศ (เช่น ฝ่ายจัดซื้อ)"
+                className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-700 dark:text-slate-200" />
+            </div>
+            <button
+              disabled={!newRoleId.trim()}
+              onClick={() => {
+                if (!newRoleId.trim()) return;
+                setRolePerms(p => [...p, { roleId: newRoleId.trim(), roleName: newRoleName.trim() || newRoleId.trim(), buttons: ['*'] }]);
+                setNewRoleId(''); setNewRoleName('');
+              }}
+              className="self-start flex items-center gap-1.5 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-md text-xs font-semibold hover:bg-indigo-100 disabled:opacity-40 transition-colors">
+              <Plus size={12} />เพิ่มยศ
+            </button>
+          </div>
+
+          {rolePerms.length > 0 && (
+            <div className="flex items-start gap-2 text-xs text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-md px-3 py-2.5 border border-blue-100 dark:border-blue-800">
+              <AlertCircle size={12} className="shrink-0 mt-0.5" />
+              <span>ยศที่ไม่ได้ตั้งค่า → ใช้ปุ่มไม่ได้เลย · ต้องกด <strong>บันทึกการตั้งค่า</strong> ด้านล่างด้วย</span>
+            </div>
+          )}
+        </div>
+      </Card>
+
       <button onClick={handleSave} disabled={saving}
-        className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2 disabled:opacity-60">
+        className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm flex items-center justify-center gap-2 disabled:opacity-60">
         {saving ? <RefreshCw size={14} className="animate-spin" /> : <MessageSquare size={14} />}
         บันทึกการตั้งค่า
       </button>
@@ -3202,11 +3553,11 @@ function IpLockCard({ toast }: { toast: (m: string, t?: Toast['type']) => void }
           </button>
         </div>
         {locked.length === 0 ? (
-          <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-100 dark:border-green-800 text-xs text-green-600 dark:text-green-400">
+          <div className="flex items-center gap-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-md border border-green-100 dark:border-green-800 text-xs text-green-600 dark:text-green-400">
             <CheckCircle size={14} />ไม่มี IP ที่ถูกล็อกอยู่
           </div>
         ) : locked.map(r => (
-          <div key={r.ip} className="flex items-center justify-between gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800">
+          <div key={r.ip} className="flex items-center justify-between gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-100 dark:border-red-800">
             <div className="min-w-0">
               <div className="text-sm font-mono font-semibold text-red-700 dark:text-red-400">{r.ip}</div>
               <div className="text-[11px] text-slate-400 mt-0.5">
@@ -3237,6 +3588,12 @@ function SiteSettingsPage({ current, onSave, toast }: {
   const [logoName, setLogoName] = useState('');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [branches, setBranches] = useState<string[]>(current.branches || ['HQ']);
+  const [newBranch, setNewBranch] = useState('');
+  const [savingBranches, setSavingBranches] = useState(false);
+  const [branchSearch, setBranchSearch] = useState('');
+  const [editingBranch, setEditingBranch] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState('');
 
   const handleTestEmail = async () => {
     setTesting(true);
@@ -3273,15 +3630,15 @@ function SiteSettingsPage({ current, onSave, toast }: {
         <div className="p-5 flex flex-col gap-5">
 
           {/* Preview */}
-          <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+          <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-md border border-slate-100 dark:border-slate-700">
             {previewLogo ? (
               <img
                 src={previewLogo.startsWith('/api/') ? previewLogo : previewLogo}
                 alt="logo preview"
-                className="w-14 h-14 object-contain rounded-xl bg-white dark:bg-slate-700 p-1 border border-slate-200 dark:border-slate-600"
+                className="w-14 h-14 object-contain rounded-md bg-white dark:bg-slate-700 p-1 border border-slate-200 dark:border-slate-600"
               />
             ) : (
-              <div className="w-14 h-14 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center border border-blue-200 dark:border-blue-800">
+              <div className="w-14 h-14 rounded-md bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center border border-blue-200 dark:border-blue-800">
                 <Shield size={24} className="text-blue-500" />
               </div>
             )}
@@ -3320,14 +3677,139 @@ function SiteSettingsPage({ current, onSave, toast }: {
 
           <div className="flex gap-3">
             <button onClick={handleSave} disabled={saving}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2">
+              className="flex-1 bg-[#206bc4] hover:bg-[#1a5fad] disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg transition-colors text-sm flex items-center justify-center gap-2">
               {saving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
               บันทึกการตั้งค่า
             </button>
-            <button onClick={handleReset} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <button onClick={handleReset} className="px-4 py-2.5 rounded-md border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
               รีเซ็ต
             </button>
           </div>
+        </div>
+      </Card>
+
+      {/* Branch Management Card */}
+      <Card title="จัดการสาขา">
+        <div className="p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-500 dark:text-slate-400">รายการสาขาที่ใช้ในฟอร์มขอซื้อ</p>
+            <span className="text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded-full">
+              {branches.length} สาขา
+            </span>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              value={branchSearch}
+              onChange={e => setBranchSearch(e.target.value)}
+              placeholder="ค้นหาสาขา..."
+              className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-slate-700 dark:text-slate-200"
+            />
+          </div>
+
+          {/* Branch chips */}
+          <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+            {(() => {
+              const filtered = branches.filter(b => b.toLowerCase().includes(branchSearch.toLowerCase()));
+              if (filtered.length === 0) return (
+                <p className="text-center text-xs text-slate-400 py-4">ไม่พบสาขาที่ค้นหา</p>
+              );
+              return (
+                <div className="flex flex-wrap gap-2">
+                  {filtered.map((b) => {
+                    const isEditing = editingBranch === b;
+                    const confirmEdit = () => {
+                      const val = editingValue.trim();
+                      if (!val) { setEditingBranch(null); return; }
+                      if (val !== b && branches.includes(val)) { toast('มีสาขานี้อยู่แล้ว', 'error'); return; }
+                      setBranches(prev => prev.map(x => x === b ? val : x));
+                      setEditingBranch(null);
+                    };
+                    return (
+                      <div key={b} className={`flex items-center gap-1.5 px-2.5 py-1.5 bg-white dark:bg-slate-700 rounded-lg border shadow-sm transition-all ${isEditing ? 'border-blue-400 ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-600'}`}>
+                        <MapPin size={11} className="text-slate-400 shrink-0" />
+                        {isEditing ? (
+                          <>
+                            <input
+                              autoFocus
+                              value={editingValue}
+                              onChange={e => setEditingValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') confirmEdit(); if (e.key === 'Escape') setEditingBranch(null); }}
+                              className="text-xs font-medium w-24 bg-transparent outline-none text-slate-700 dark:text-slate-200"
+                            />
+                            <button onClick={confirmEdit} className="text-green-500 hover:text-green-600 transition-colors"><CheckCircle size={12} /></button>
+                            <button onClick={() => setEditingBranch(null)} className="text-slate-300 hover:text-slate-500 transition-colors"><X size={12} /></button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-xs font-medium text-slate-700 dark:text-slate-200">{b}</span>
+                            {b === 'HQ'
+                              ? <span className="text-[9px] bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 px-1 py-0.5 rounded font-semibold leading-none">หลัก</span>
+                              : <>
+                                  <button onClick={() => { setEditingBranch(b); setEditingValue(b); }}
+                                    className="text-slate-300 hover:text-blue-500 dark:text-slate-500 dark:hover:text-blue-400 transition-colors ml-0.5">
+                                    <Edit2 size={11} />
+                                  </button>
+                                  <button onClick={() => setBranches(prev => prev.filter(x => x !== b))}
+                                    className="text-slate-300 hover:text-red-500 dark:text-slate-500 dark:hover:text-red-400 transition-colors">
+                                    <X size={12} />
+                                  </button>
+                                </>
+                            }
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+
+          {branchSearch && (
+            <p className="text-[11px] text-slate-400 -mt-2">
+              แสดง {branches.filter(b => b.toLowerCase().includes(branchSearch.toLowerCase())).length} จาก {branches.length} สาขา
+            </p>
+          )}
+
+          {/* Add new branch */}
+          <div className="flex gap-2">
+            <input value={newBranch} onChange={e => setNewBranch(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && newBranch.trim()) {
+                  if (!branches.includes(newBranch.trim())) { setBranches(p => [...p, newBranch.trim()]); }
+                  else { toast('มีสาขานี้อยู่แล้ว', 'error'); }
+                  setNewBranch('');
+                }
+              }}
+              placeholder="ชื่อสาขาใหม่..."
+              className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 text-slate-700 dark:text-slate-200" />
+            <button onClick={() => {
+              if (!newBranch.trim()) return;
+              if (!branches.includes(newBranch.trim())) { setBranches(p => [...p, newBranch.trim()]); }
+              else { toast('มีสาขานี้อยู่แล้ว', 'error'); }
+              setNewBranch('');
+            }} disabled={!newBranch.trim()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center gap-1.5">
+              <Plus size={14} />เพิ่ม
+            </button>
+          </div>
+
+          <button onClick={async () => {
+            setSavingBranches(true);
+            try {
+              const updated = await api.settings.update({ branches });
+              onSave({ ...current, branches: updated.branches || branches });
+              toast('บันทึกรายการสาขาสำเร็จ');
+            } catch (err: any) { toast(err.message || 'เกิดข้อผิดพลาด', 'error'); }
+            finally { setSavingBranches(false); }
+          }} disabled={savingBranches}
+            className="flex items-center justify-center gap-2 bg-[#206bc4] hover:bg-[#1a5fad] disabled:opacity-60 text-white font-semibold py-2.5 rounded-md transition-colors text-sm w-fit px-5">
+            {savingBranches ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+            บันทึกรายการสาขา
+          </button>
         </div>
       </Card>
 
@@ -3337,12 +3819,12 @@ function SiteSettingsPage({ current, onSave, toast }: {
           <p className="text-sm text-slate-500 dark:text-slate-400">
             กดปุ่มด้านล่างเพื่อส่งอีเมลทดสอบไปยัง email ของ account ที่ login อยู่
           </p>
-          <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-md border border-slate-100 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
             <AlertCircle size={14} className="shrink-0 text-amber-500" />
             ต้องอัปเดต Email ใน User Management ให้เป็นอีเมลจริงก่อน ระบบจึงจะส่งได้ถูกต้อง
           </div>
           <button onClick={handleTestEmail} disabled={testing}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold rounded-xl transition-colors text-sm w-fit">
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold rounded-md transition-colors text-sm w-fit">
             {testing ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
             {testing ? 'กำลังส่ง...' : 'ส่งอีเมลทดสอบ'}
           </button>
@@ -3428,7 +3910,7 @@ function SmtpSettingsCard({ toast }: { toast: (m: string, t?: Toast['type']) => 
           <div className="flex gap-2 flex-wrap">
             {Object.entries(PRESETS).map(([key, p]) => (
               <button key={key} onClick={() => applyPreset(key)}
-                className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors ${preset === key ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}>
+                className={`px-3 py-1.5 rounded-md border text-xs font-semibold transition-colors ${preset === key ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-400'}`}>
                 {p.label}
               </button>
             ))}
@@ -3463,11 +3945,11 @@ function SmtpSettingsCard({ toast }: { toast: (m: string, t?: Toast['type']) => 
 
         <div className="flex gap-2">
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors">
+            className="flex-1 bg-[#206bc4] hover:bg-[#1a5fad] disabled:opacity-60 text-white font-semibold py-2.5 rounded-md text-sm flex items-center justify-center gap-2 transition-colors">
             {saving ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}บันทึก SMTP
           </button>
           {host && <button onClick={handleClear} disabled={saving}
-            className="px-4 py-2.5 rounded-xl border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm transition-colors">
+            className="px-4 py-2.5 rounded-md border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm transition-colors">
             ล้างค่า
           </button>}
         </div>
@@ -3719,7 +4201,7 @@ export default function App() {
     switch (page) {
       case 'dashboard': return <DashboardPage requests={requests} />;
       case 'my-requests': return <MyRequestsPage requests={requests} user={currentUser} onView={setViewReq} onEdit={setEditReq} onReceive={setReceiveReq} />;
-      case 'create-request': return <CreateRequestPage user={currentUser} onSave={handleCreateRequest} toast={toast} />;
+      case 'create-request': return <CreateRequestPage user={currentUser} onSave={handleCreateRequest} toast={toast} siteSettings={siteSettings} />;
       case 'pending-approval': return <PendingApprovalPage requests={requests} onIssuePRPO={r => { setIssuePRReq(r); setPrFile(''); setPrFileUrl(''); setPoFile(''); setPoFileUrl(''); }} onReject={setRejectReq} onView={setViewReq} />;
       case 'issue-pr-po': return <IssuePRPOPage requests={requests} onIssue={handleIssuePRPO} toast={toast} />;
       case 'forward-accounting': return <ForwardAccountingPage requests={requests} onForward={r => setForwardReq(r)} onAddFile={r => { setIssuePRReq(r); setPrFile(''); setPrFileUrl(''); setPoFile(''); setPoFileUrl(''); setPrNotes(''); }} />;
@@ -3738,16 +4220,31 @@ export default function App() {
   };
 
   return (
-    <div className={`flex h-screen overflow-hidden ${dark ? 'dark' : ''} bg-slate-50 dark:bg-slate-950`}>
+    <div className={`flex h-screen overflow-hidden ${dark ? 'dark' : ''} bg-[#f4f6fb] dark:bg-slate-950`}>
       {mobileOpen && <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setMobileOpen(false)} />}
       <Sidebar user={currentUser} page={page} setPage={navigate} collapsed={collapsed} dark={dark} toggleDark={() => setDark(!dark)} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} siteSettings={siteSettings} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Topbar page={page} user={currentUser} requests={requests} onLogout={handleLogout} collapsed={collapsed} setCollapsed={setCollapsed} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
-        <main className="flex-1 overflow-y-auto p-5 sm:p-6">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-5 md:p-6 pb-20 sm:pb-6">
           {isLoading ? <SkeletonPage page={page} /> : renderPage()}
         </main>
       </div>
+
+      {/* Mobile Bottom Nav */}
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-30 bg-white dark:bg-slate-900 border-t border-slate-200/80 dark:border-slate-800 flex items-center safe-area-pb shadow-lg">
+        {MENU.filter(m => m.roles.includes(currentUser.role)).slice(0, 5).map(m => {
+          const active = page === m.id;
+          return (
+            <button key={m.id} onClick={() => navigate(m.id)}
+              className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 min-w-0 transition-colors
+                ${active ? 'text-[#206bc4] dark:text-blue-400' : 'text-slate-400 dark:text-slate-500'}`}>
+              <m.icon size={19} className="shrink-0" />
+              <span className="text-[9px] font-medium leading-tight truncate w-full text-center px-0.5">{m.label.length > 8 ? m.label.slice(0, 8) + '…' : m.label}</span>
+            </button>
+          );
+        })}
+      </nav>
 
       <PageLoader loading={isLoading} />
       <ToastContainer toasts={toasts} remove={id => setToasts(t => t.filter(x => x.id !== id))} />
@@ -3779,14 +4276,14 @@ export default function App() {
                     return toast('กรุณาแนบเอกสารอย่างน้อย 1 ไฟล์', 'error');
                   handleIssuePRPO(issuePRReq!.id, prFileUrl, poFileUrl, prNotes, true);
                 }}
-                className="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl py-2 text-sm font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                className="flex-1 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-md py-2 text-sm font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
                 บันทึกแบบร่าง
               </button>
               {/* บันทึกครบ — ต้องมีทั้ง 2 ไฟล์ */}
               <button
                 disabled={!(prFileUrl || issuePRReq?.prFile) || !(poFileUrl || issuePRReq?.poFile)}
-                onClick={() => handleIssuePRPO(issuePRReq!.id, prFileUrl || issuePRReq?.prFile || '', poFileUrl || issuePRReq?.poFile || '', prNotes)}
-                className="flex-1 bg-blue-600 text-white rounded-xl py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                onClick={() => handleIssuePRPO(issuePRReq!.id, prFileUrl, poFileUrl, prNotes)}
+                className="flex-1 bg-blue-600 text-white rounded-md py-2 text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 บันทึกครบ ✓
               </button>
             </div>
@@ -3795,7 +4292,7 @@ export default function App() {
         }>
         {issuePRReq && (
           <div className="space-y-3">
-            <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 text-xs text-slate-600 dark:text-slate-400 border border-slate-100 dark:border-slate-700">
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-md p-3 text-xs text-slate-600 dark:text-slate-400 border border-slate-100 dark:border-slate-700">
               <div className="font-semibold text-slate-700 dark:text-slate-200 text-sm">{issuePRReq.title}</div>
               <div className="mt-1">฿<span className="font-bold text-blue-600">{fmt(issuePRReq.totalAmount)}</span> · {issuePRReq.createdByName}</div>
             </div>
@@ -3819,17 +4316,17 @@ export default function App() {
         footer={
           <div className="flex gap-3">
             <button onClick={() => rejectReq && handleReject(rejectReq.id, rejectNotes)}
-              className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-xl py-2 text-sm font-semibold transition-colors">
+              className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-md py-2 text-sm font-semibold transition-colors">
               ยืนยันปฏิเสธ
             </button>
             <button onClick={() => { setRejectReq(null); setRejectNotes(''); }}
-              className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              className="px-4 py-2 rounded-md border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
               ยกเลิก
             </button>
           </div>
         }>
         <div className="space-y-3">
-          <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-100 dark:border-red-800">
+          <div className="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-md border border-red-100 dark:border-red-800">
             <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
             <div>
               <div className="text-sm font-medium text-slate-700 dark:text-slate-200">{rejectReq?.title}</div>
@@ -3852,13 +4349,13 @@ export default function App() {
       <Modal open={!!recordPayReq} title="บันทึกการโอนเงิน" onClose={() => setRecordPayReq(null)}
         footer={
           <div className="flex gap-3">
-            <button onClick={() => { if (!transferRef) { toast('กรุณากรอก Ref.', 'error'); return; } handleTransfer(recordPayReq!.id, transferRef, transferDate, transferNotes, transferSlipUrl); }} className="flex-1 bg-green-600 text-white rounded-xl py-2 text-sm font-semibold hover:bg-green-700 transition-colors">ยืนยันการโอน</button>
-            <button onClick={() => setRecordPayReq(null)} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">ยกเลิก</button>
+            <button onClick={() => { if (!transferRef) { toast('กรุณากรอก Ref.', 'error'); return; } handleTransfer(recordPayReq!.id, transferRef, transferDate, transferNotes, transferSlipUrl); }} className="flex-1 bg-green-600 text-white rounded-md py-2 text-sm font-semibold hover:bg-green-700 transition-colors">ยืนยันการโอน</button>
+            <button onClick={() => setRecordPayReq(null)} className="px-4 py-2 rounded-md border border-slate-200 dark:border-slate-700 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">ยกเลิก</button>
           </div>
         }>
         {recordPayReq && (
           <div className="space-y-3">
-            <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 text-xs border border-slate-100 dark:border-slate-700">
+            <div className="bg-slate-50 dark:bg-slate-800 rounded-md p-3 text-xs border border-slate-100 dark:border-slate-700">
               <div className="font-semibold text-slate-700 dark:text-slate-200">{recordPayReq.title}</div>
               <div className="mt-0.5 text-blue-600 font-bold">฿{fmt(recordPayReq.totalAmount)}</div>
             </div>
@@ -3888,13 +4385,13 @@ export default function App() {
 
       {/* Reset Password Confirm */}
       <ConfirmDialog open={!!resetPwUser} title="Reset Password"
-        message={`ยืนยัน Reset Password ของ "${resetPwUser?.name}" ? รหัสผ่านใหม่จะเป็น "1234"`}
+        message={`ยืนยัน Reset Password ของ "${resetPwUser?.name}" ? ระบบจะสุ่มรหัสผ่านใหม่ 8 ตัวอักษรและแสดงให้คัดลอก`}
         onConfirm={async () => {
           if (!resetPwUser) return;
           try {
-            await api.users.resetPassword(resetPwUser.id);
+            const res = await api.users.resetPassword(resetPwUser.id);
             addAudit('UPDATE', 'User Management', `Reset password ของ ${resetPwUser.username}`);
-            toast(`Reset Password ของ ${resetPwUser.name} แล้ว (รหัสใหม่: 1234)`, 'warning');
+            toast(`รหัสผ่านใหม่ของ ${resetPwUser.name}: ${res.newPassword} (คัดลอกก่อนปิด!)`, 'warning');
             setResetPwUser(null);
           } catch (err: any) { toast(err.message || 'เกิดข้อผิดพลาด', 'error'); }
         }}

@@ -260,6 +260,38 @@ export async function startBot(token: string): Promise<void> {
   client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return
     try {
+      // ตรวจสิทธิ์ Discord Role
+      const s = await prisma.settings.findUnique({ where: { id: 'singleton' }, select: { discordRolePerms: true } })
+      if (s?.discordRolePerms) {
+        const perms: Record<string, { name?: string; buttons: string[] } | string[]> = JSON.parse(s.discordRolePerms)
+        const memberRoles = interaction.member?.roles
+        const userRoleIds = memberRoles && 'cache' in memberRoles
+          ? [...(memberRoles as any).cache.keys()]
+          : []
+
+        const getButtons = (v: any): string[] => {
+          if (Array.isArray(v)) return v
+          if (v && Array.isArray(v.buttons)) return v.buttons
+          return []
+        }
+
+        const allowed = Object.entries(perms).some(([roleId, value]) => {
+          if (!userRoleIds.includes(roleId)) return false
+          const buttons = getButtons(value)
+          return buttons.includes('*') || buttons.includes(interaction.customId)
+        })
+
+        // ถ้ามี config แต่ user ไม่มี role ที่ตรง → ปฏิเสธ
+        const hasAnyConfig = Object.keys(perms).length > 0
+        if (hasAnyConfig && !allowed) {
+          await interaction.reply({
+            content: 'คุณไม่มีสิทธิ์ใช้ปุ่มนี้',
+            ephemeral: true,
+          })
+          return
+        }
+      }
+
       if (interaction.customId === 'report_refresh') await handleRefresh(interaction)
       else if (interaction.customId === 'report_daily') await handleDaily(interaction)
       else if (interaction.customId === 'report_monthly') await handleMonthly(interaction)

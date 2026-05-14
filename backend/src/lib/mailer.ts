@@ -124,7 +124,7 @@ export async function mailAccountingForward(to: string[], req: {
 }
 
 // แจ้งผู้ขอเมื่อโอนเงินสำเร็จ
-export async function mailTransferred(to: string, req: {
+export async function mailTransferred(to: string | string[], req: {
   reqNo: string; title: string; totalAmount: number; transferRef?: string; transferDate?: string;
 }) {
   const rows: [string, string][] = [
@@ -145,14 +145,14 @@ export async function mailTransferred(to: string, req: {
 
   const { transporter, from } = await getTransporter()
   await transporter.sendMail({
-    from, to,
+    from, to: Array.isArray(to) ? to.join(',') : to,
     subject: `[PR System] โอนเงินแล้ว — ${req.reqNo} | ${req.title}`,
     html: base('ยืนยันการโอนเงินสำเร็จ', body),
   })
 }
 
 // แจ้งผู้ขอเมื่อถูกปฏิเสธ
-export async function mailRejected(to: string, req: {
+export async function mailRejected(to: string | string[], req: {
   reqNo: string; title: string; notes?: string;
 }) {
   const rows: [string, string][] = [
@@ -171,7 +171,7 @@ export async function mailRejected(to: string, req: {
 
   const { transporter, from } = await getTransporter()
   await transporter.sendMail({
-    from, to,
+    from, to: Array.isArray(to) ? to.join(',') : to,
     subject: `[PR System] ปฏิเสธคำขอ — ${req.reqNo} | ${req.title}`,
     html: base('ใบขอซื้อถูกปฏิเสธ', body),
   })

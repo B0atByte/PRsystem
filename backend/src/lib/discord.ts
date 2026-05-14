@@ -23,16 +23,16 @@ const fmt = (n: number) => n.toLocaleString('th-TH')
 const deptLabel = (role: string) => DEPT[role] || role
 const authorText = (actor: Actor) => `${actor.name}  —  ${deptLabel(actor.role)}`
 
-async function send(webhook: string, embed: DiscordEmbed) {
+async function send(webhook: string, embed: DiscordEmbed, siteName = 'ระบบขอซื้อสินค้า') {
   try {
     const res = await fetch(webhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        username: 'Casa Lapin — ระบบขอซื้อสินค้า',
+        username: siteName,
         embeds: [{
           ...embed,
-          footer: embed.footer ?? { text: 'Casa Lapin PR System' },
+          footer: embed.footer ?? { text: siteName },
           timestamp: new Date().toISOString(),
         }],
       }),
@@ -43,7 +43,7 @@ async function send(webhook: string, embed: DiscordEmbed) {
   }
 }
 
-export function discordNewRequest(webhook: string, r: any, actor: Actor) {
+export function discordNewRequest(webhook: string, r: any, actor: Actor, siteName?: string) {
   return send(webhook, {
     author: { name: authorText(actor) },
     title: 'ใบขอซื้อใหม่ — รอดำเนินการ',
@@ -51,16 +51,17 @@ export function discordNewRequest(webhook: string, r: any, actor: Actor) {
     color: 0xf59e0b,
     fields: [
       { name: 'เลขที่', value: `\`${r.reqNo}\``, inline: true },
-      { name: 'หมวด', value: r.category || '—', inline: true },
+      { name: 'สาขา', value: r.branch || 'HQ', inline: true },
       { name: 'ยอดเงิน', value: `**฿${fmt(r.totalAmount)}**`, inline: true },
       { name: 'กำหนดชำระ', value: r.dueDate || '—', inline: true },
-      { name: 'วิธีชำระ', value: r.paymentMethod === 'cash' ? 'เงินสด' : 'โอนเงิน', inline: true },
+      { name: 'วิธีชำระ', value: r.paymentMethod === 'cash' ? 'เงินสด' : r.paymentMethod === 'bank' ? 'บัญชีบริษัท' : 'สำรองจ่าย', inline: true },
+      { name: 'ผู้ขอ', value: r.createdByName, inline: true },
     ],
-    footer: { text: 'ฝ่ายจัดซื้อ: โปรดดำเนินการอนุมัติ' },
-  })
+    footer: { text: `${siteName || 'ระบบขอซื้อสินค้า'} — ฝ่ายจัดซื้อ: โปรดดำเนินการ` },
+  }, siteName)
 }
 
-export function discordPurchasing(webhook: string, r: any, actor: Actor) {
+export function discordPurchasing(webhook: string, r: any, actor: Actor, siteName?: string) {
   return send(webhook, {
     author: { name: authorText(actor) },
     title: 'ออก PR/PO เรียบร้อยแล้ว',
@@ -68,16 +69,17 @@ export function discordPurchasing(webhook: string, r: any, actor: Actor) {
     color: 0x3b82f6,
     fields: [
       { name: 'เลขที่', value: `\`${r.reqNo}\``, inline: true },
+      { name: 'สาขา', value: r.branch || 'HQ', inline: true },
       { name: 'PR', value: `**${r.prNo || '—'}**`, inline: true },
       { name: 'PO', value: `**${r.poNo || '—'}**`, inline: true },
       { name: 'ยอดเงิน', value: `**฿${fmt(r.totalAmount)}**`, inline: true },
       { name: 'ผู้ขอ', value: r.createdByName, inline: true },
     ],
-    footer: { text: 'ฝ่ายบัญชี: มีรายการรอโอนเงิน' },
-  })
+    footer: { text: `${siteName || 'ระบบขอซื้อสินค้า'} — ฝ่ายบัญชี: มีรายการรอโอนเงิน` },
+  }, siteName)
 }
 
-export function discordAccounting(webhook: string, r: any, actor: Actor) {
+export function discordAccounting(webhook: string, r: any, actor: Actor, siteName?: string) {
   return send(webhook, {
     author: { name: authorText(actor) },
     title: 'ส่งต่อฝ่ายบัญชีแล้ว — รอโอนเงิน',
@@ -85,16 +87,17 @@ export function discordAccounting(webhook: string, r: any, actor: Actor) {
     color: 0x8b5cf6,
     fields: [
       { name: 'เลขที่', value: `\`${r.reqNo}\``, inline: true },
+      { name: 'สาขา', value: r.branch || 'HQ', inline: true },
       { name: 'PR / PO', value: `**${r.prNo || '—'}** / **${r.poNo || '—'}**`, inline: true },
       { name: 'ยอดเงิน', value: `**฿${fmt(r.totalAmount)}**`, inline: true },
       { name: 'ผู้ขอ', value: r.createdByName, inline: true },
       { name: 'กำหนดชำระ', value: r.dueDate || '—', inline: true },
     ],
-    footer: { text: 'ฝ่ายบัญชี: โปรดบันทึกการโอนเงิน' },
-  })
+    footer: { text: `${siteName || 'ระบบขอซื้อสินค้า'} — ฝ่ายบัญชี: โปรดบันทึกการโอนเงิน` },
+  }, siteName)
 }
 
-export function discordTransferred(webhook: string, r: any, actor: Actor) {
+export function discordTransferred(webhook: string, r: any, actor: Actor, siteName?: string) {
   return send(webhook, {
     author: { name: authorText(actor) },
     title: 'โอนเงินสำเร็จแล้ว',
@@ -102,16 +105,17 @@ export function discordTransferred(webhook: string, r: any, actor: Actor) {
     color: 0x10b981,
     fields: [
       { name: 'เลขที่', value: `\`${r.reqNo}\``, inline: true },
+      { name: 'สาขา', value: r.branch || 'HQ', inline: true },
       { name: 'Ref โอนเงิน', value: `**${r.transferRef || '—'}**`, inline: true },
       { name: 'วันที่โอน', value: r.transferDate || '—', inline: true },
       { name: 'ยอดเงิน', value: `**฿${fmt(r.totalAmount)}**`, inline: true },
       { name: 'ผู้ขอ', value: r.createdByName, inline: true },
     ],
-    footer: { text: 'พนักงาน: โปรดตรวจรับสินค้า แล้วกดยืนยัน' },
-  })
+    footer: { text: `${siteName || 'ระบบขอซื้อสินค้า'} — พนักงาน: โปรดตรวจรับสินค้า แล้วกดยืนยัน` },
+  }, siteName)
 }
 
-export function discordRejected(webhook: string, r: any, actor: Actor) {
+export function discordRejected(webhook: string, r: any, actor: Actor, siteName?: string) {
   return send(webhook, {
     author: { name: authorText(actor) },
     title: 'ปฏิเสธใบขอซื้อ',
@@ -119,15 +123,16 @@ export function discordRejected(webhook: string, r: any, actor: Actor) {
     color: 0xef4444,
     fields: [
       { name: 'เลขที่', value: `\`${r.reqNo}\``, inline: true },
+      { name: 'สาขา', value: r.branch || 'HQ', inline: true },
       { name: 'ผู้ขอ', value: r.createdByName, inline: true },
       { name: 'ยอดเงิน', value: `฿${fmt(r.totalAmount)}`, inline: true },
       { name: 'เหตุผล', value: r.notes ? `> ${r.notes}` : '—' },
     ],
-    footer: { text: 'พนักงาน: ติดต่อผู้ดูแลเพื่อสอบถามเพิ่มเติม' },
-  })
+    footer: { text: `${siteName || 'ระบบขอซื้อสินค้า'} — พนักงาน: ติดต่อผู้ดูแลเพื่อสอบถามเพิ่มเติม` },
+  }, siteName)
 }
 
-export function discordReceived(webhook: string, r: any, actor: Actor) {
+export function discordReceived(webhook: string, r: any, actor: Actor, siteName?: string) {
   return send(webhook, {
     author: { name: authorText(actor) },
     title: 'ยืนยันรับสินค้าแล้ว — เสร็จสิ้น',
@@ -135,12 +140,58 @@ export function discordReceived(webhook: string, r: any, actor: Actor) {
     color: 0x22c55e,
     fields: [
       { name: 'เลขที่', value: `\`${r.reqNo}\``, inline: true },
+      { name: 'สาขา', value: r.branch || 'HQ', inline: true },
       { name: 'ผู้รับ', value: `**${actor.name}**`, inline: true },
       { name: 'ยอดเงิน', value: `฿${fmt(r.totalAmount)}`, inline: true },
       { name: 'วันที่รับ', value: r.receivedAt || '—', inline: true },
     ],
-    footer: { text: 'Casa Lapin PR System — เสร็จสิ้น' },
-  })
+    footer: { text: `${siteName || 'ระบบขอซื้อสินค้า'} — เสร็จสิ้น` },
+  }, siteName)
+}
+
+export function discordLogin(webhook: string, user: { name: string; role: string; username: string }, ip: string, siteName?: string) {
+  return send(webhook, {
+    title: 'เข้าสู่ระบบ',
+    description: `**${user.name}** (${deptLabel(user.role)}) เข้าสู่ระบบแล้ว`,
+    color: 0x6366f1,
+    fields: [
+      { name: 'ผู้ใช้', value: `\`${user.username}\``, inline: true },
+      { name: 'ตำแหน่ง', value: deptLabel(user.role), inline: true },
+      { name: 'IP', value: `\`${ip}\``, inline: true },
+    ],
+    footer: { text: siteName || 'ระบบขอซื้อสินค้า' },
+  }, siteName)
+}
+
+export function discordLogout(webhook: string, user: { name: string; role: string; username: string }, siteName?: string) {
+  return send(webhook, {
+    title: 'ออกจากระบบ',
+    description: `**${user.name}** (${deptLabel(user.role)}) ออกจากระบบแล้ว`,
+    color: 0x94a3b8,
+    fields: [
+      { name: 'ผู้ใช้', value: `\`${user.username}\``, inline: true },
+      { name: 'ตำแหน่ง', value: deptLabel(user.role), inline: true },
+    ],
+    footer: { text: siteName || 'ระบบขอซื้อสินค้า' },
+  }, siteName)
+}
+
+export function discordPasswordReset(
+  webhook: string,
+  target: { name: string; username: string },
+  admin: { name: string },
+  siteName?: string,
+) {
+  return send(webhook, {
+    title: 'Reset Password',
+    description: `**${admin.name}** ทำการ Reset Password ให้ **${target.name}**`,
+    color: 0xf59e0b,
+    fields: [
+      { name: 'ผู้ถูก Reset', value: `\`${target.username}\`  (${target.name})`, inline: false },
+      { name: 'ดำเนินการโดย', value: admin.name, inline: true },
+    ],
+    footer: { text: `${siteName || 'ระบบขอซื้อสินค้า'} — โปรดแจ้งรหัสผ่านใหม่ให้ผู้ใช้ทราบ` },
+  }, siteName)
 }
 
 export interface ReportData {
@@ -205,11 +256,11 @@ export function discordDailyReport(webhook: string, d: ReportData) {
         inline: false,
       }] : []),
     ],
-    footer: { text: 'Casa Lapin PR System — รายงานอัตโนมัติ' },
-  })
+    footer: { text: `${d.siteName} — รายงานอัตโนมัติ` },
+  }, d.siteName)
 }
 
-export function discordTest(webhook: string) {
+export function discordTest(webhook: string, siteName?: string) {
   return send(webhook, {
     author: { name: 'IT Support — ทดสอบระบบ' },
     title: 'ทดสอบการแจ้งเตือน Discord',
@@ -220,6 +271,6 @@ export function discordTest(webhook: string) {
       { name: 'PR/PO', value: 'แจ้งเมื่อออกเอกสาร', inline: true },
       { name: 'โอนเงิน', value: 'แจ้งเมื่อโอนเงินสำเร็จ', inline: true },
     ],
-    footer: { text: 'Casa Lapin PR System' },
-  })
+    footer: { text: siteName || 'ระบบขอซื้อสินค้า' },
+  }, siteName)
 }

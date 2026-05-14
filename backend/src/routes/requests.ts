@@ -18,6 +18,7 @@ const itemSchema = z.object({
   unit: z.string().max(50).default(''),
   price: z.number().nonnegative('ราคาต้องไม่ติดลบ').default(0),
   itemNote: z.string().max(500).optional().default(''),
+  externalLink: z.string().max(2000).optional().default(''),
 })
 
 const createRequestSchema = z.object({
@@ -37,6 +38,8 @@ const createRequestSchema = z.object({
   contactName: z.string().max(200).optional().default(''),
   signedDate: z.string().optional().default(''),
   requestFile: z.string().optional(),
+  branch: z.string().max(100).default('HQ'),
+  requestPhotos: z.string().optional(),
   items: z.array(itemSchema).optional().default([]),
 })
 
@@ -235,7 +238,7 @@ requests.put('/:id', async (c) => {
 
   const existing = await prisma.purchaseRequest.findUnique({ where: { id } })
   if (!existing) return c.json({ error: 'Not found' }, 404)
-  if (existing.createdBy !== user.id) return c.json({ error: 'Forbidden' }, 403)
+  if (existing.createdBy !== user.id && user.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
   if (existing.status !== 'pending') return c.json({ error: 'ไม่สามารถแก้ไขใบขอซื้อที่ส่งดำเนินการแล้ว' }, 400)
 
   const result = await parseBody(c, createRequestSchema)
@@ -264,6 +267,8 @@ requests.put('/:id', async (c) => {
       contactName: body.contactName,
       signedDate: body.signedDate,
       requestFile: body.requestFile ? wrapFile(body.requestFile) : existing.requestFile,
+      branch: body.branch || 'HQ',
+      requestPhotos: body.requestPhotos ?? undefined,
       items: { deleteMany: {}, create: body.items },
     },
     include: { items: true },
@@ -272,8 +277,8 @@ requests.put('/:id', async (c) => {
   return c.json(formatRequest(updated))
 })
 
-// POST /api/requests — employee เท่านั้น
-requests.post('/', requireRole('employee'), async (c) => {
+// POST /api/requests — employee และ owner
+requests.post('/', requireRole('employee', 'owner'), async (c) => {
   const user = c.get('user')
   const result = await parseBody(c, createRequestSchema)
   if (!(result as any).data) return result as unknown as Response
@@ -311,6 +316,8 @@ requests.post('/', requireRole('employee'), async (c) => {
       contactName: body.contactName,
       signedDate: body.signedDate,
       requestFile: wrapFileCreate(body.requestFile),
+      branch: body.branch || 'HQ',
+      requestPhotos: body.requestPhotos ?? undefined,
       createdBy: user.id,
       createdByName: user.name,
       items: { create: body.items },
@@ -319,18 +326,20 @@ requests.post('/', requireRole('employee'), async (c) => {
   })
 
   const r = formatRequest(data)
-  prisma.user.findMany({ where: { role: 'purchasing', active: true }, select: { email: true } })
-    .then(users => {
-      const emails = users.map(u => u.email).filter(Boolean) as string[]
-      if (emails.length) mailNewRequest(emails, r)
-        .then(() => console.log('[mail] new request sent OK'))
-        .catch(e => console.error('[mail] new request error:', e.message))
-    }).catch(e => console.error('[mail] find purchasing error:', e.message))
+  Promise.all([
+    prisma.user.findMany({ where: { role: 'purchasing', active: true }, select: { email: true } }),
+    prisma.user.findMany({ where: { role: 'owner', active: true }, select: { email: true } }),
+  ]).then(([purchasing, owners]) => {
+    const emails = [...purchasing, ...owners].map(u => u.email).filter(Boolean) as string[]
+    if (emails.length) mailNewRequest(emails, r)
+      .then(() => console.log('[mail] new request sent OK'))
+      .catch(e => console.error('[mail] new request error:', e.message))
+  }).catch(e => console.error('[mail] find users error:', e.message))
 
   // Discord notification — new request
   const actor: Actor = { name: user.name, role: user.role }
   prisma.settings.findUnique({ where: { id: 'singleton' } }).then(s => {
-    if (s?.discordWebhook && s.discordOnNewRequest) discordNewRequest(s.discordWebhook, r, actor).catch(console.error)
+    if (s?.discordWebhook && s.discordOnNewRequest) discordNewRequest(s.discordWebhook, r, actor, s.siteName).catch(console.error)
   }).catch(console.error)
 
   return c.json(r, 201)
@@ -347,11 +356,11 @@ requests.patch('/:id/status', async (c) => {
 
   // ตรวจ role + current status transition ที่ถูกต้อง
   const allowedActions: Record<string, string[]> = {
-    purchasing: ['purchasing'],
-    accounting: ['purchasing'],
-    transferred: ['accounting'],
+    purchasing: ['purchasing', 'owner'],
+    accounting: ['purchasing', 'owner'],
+    transferred: ['accounting', 'owner'],
     received: ['employee', 'owner'],
-    rejected: ['purchasing', 'accounting'],
+    rejected: ['purchasing', 'accounting', 'owner'],
   }
 
   // กำหนด current status ที่ถูกต้องสำหรับแต่ละ transition
@@ -377,8 +386,8 @@ requests.patch('/:id/status', async (c) => {
     return c.json({ error: `ไม่สามารถเปลี่ยนสถานะได้ (ต้องเป็น ${validFrom.join(' หรือ ')} ก่อน)` }, 400)
   }
 
-  // received — ต้องเป็นเจ้าของใบขอซื้อเท่านั้น
-  if (body.status === 'received') {
+  // received — ต้องเป็นเจ้าของใบขอซื้อ หรือ owner ที่มีสิทธิ์ทุกอย่าง
+  if (body.status === 'received' && user.role !== 'owner') {
     if (existing.createdBy !== user.id) return c.json({ error: 'Forbidden' }, 403)
   }
 
@@ -406,20 +415,37 @@ requests.patch('/:id/status', async (c) => {
   })
 
   const r = formatRequest(updated)
+  const getOwnerEmails = () => prisma.user.findMany({ where: { role: 'owner', active: true }, select: { email: true } })
+    .then(users => users.map(u => u.email).filter(Boolean) as string[])
+
   if (body.status === 'accounting') {
-    prisma.user.findMany({ where: { role: 'accounting', active: true }, select: { email: true } })
-      .then(users => {
-        const emails = users.map(u => u.email).filter(Boolean)
-        if (emails.length) mailAccountingForward(emails, r).catch(console.error)
-      }).catch(console.error)
+    Promise.all([
+      prisma.user.findMany({ where: { role: 'accounting', active: true }, select: { email: true } }),
+      getOwnerEmails(),
+    ]).then(([accounting, owners]) => {
+      const emails = [...accounting.map(u => u.email), ...owners].filter(Boolean) as string[]
+      if (emails.length) mailAccountingForward(emails, r).catch(console.error)
+    }).catch(console.error)
   } else if (body.status === 'transferred') {
-    prisma.user.findUnique({ where: { id: updated.createdBy }, select: { email: true } })
-      .then(u => { if (u?.email) mailTransferred(u.email, r).catch(console.error) })
-      .catch(console.error)
+    Promise.all([
+      prisma.user.findUnique({ where: { id: updated.createdBy }, select: { email: true } }),
+      getOwnerEmails(),
+    ]).then(([creator, owners]) => {
+      const emails = [creator?.email, ...owners].filter(Boolean) as string[]
+      if (emails.length) mailTransferred(emails, r).catch(console.error)
+    }).catch(console.error)
   } else if (body.status === 'rejected') {
-    prisma.user.findUnique({ where: { id: updated.createdBy }, select: { email: true } })
-      .then(u => { if (u?.email) mailRejected(u.email, { ...r, notes: body.notes }).catch(console.error) })
-      .catch(console.error)
+    Promise.all([
+      prisma.user.findUnique({ where: { id: updated.createdBy }, select: { email: true } }),
+      getOwnerEmails(),
+    ]).then(([creator, owners]) => {
+      const emails = [creator?.email, ...owners].filter(Boolean) as string[]
+      if (emails.length) mailRejected(emails, { ...r, notes: body.notes }).catch(console.error)
+    }).catch(console.error)
+  } else if (body.status === 'received') {
+    getOwnerEmails().then(owners => {
+      if (owners.length) mailTransferred(owners, r).catch(console.error)
+    }).catch(console.error)
   }
 
   // Discord notifications per status
@@ -427,11 +453,12 @@ requests.patch('/:id/status', async (c) => {
   prisma.settings.findUnique({ where: { id: 'singleton' } }).then(s => {
     if (!s?.discordWebhook) return
     const wh = s.discordWebhook
-    if (body.status === 'purchasing' && s.discordOnPurchasing) discordPurchasing(wh, r, statusActor).catch(console.error)
-    else if (body.status === 'accounting' && s.discordOnAccounting) discordAccounting(wh, r, statusActor).catch(console.error)
-    else if (body.status === 'transferred' && s.discordOnTransferred) discordTransferred(wh, r, statusActor).catch(console.error)
-    else if (body.status === 'rejected' && s.discordOnRejected) discordRejected(wh, { ...r, notes: body.notes }, statusActor).catch(console.error)
-    else if (body.status === 'received' && s.discordOnReceived) discordReceived(wh, r, statusActor).catch(console.error)
+    const sn = s.siteName
+    if (body.status === 'purchasing' && s.discordOnPurchasing) discordPurchasing(wh, r, statusActor, sn).catch(console.error)
+    else if (body.status === 'accounting' && s.discordOnAccounting) discordAccounting(wh, r, statusActor, sn).catch(console.error)
+    else if (body.status === 'transferred' && s.discordOnTransferred) discordTransferred(wh, r, statusActor, sn).catch(console.error)
+    else if (body.status === 'rejected' && s.discordOnRejected) discordRejected(wh, { ...r, notes: body.notes }, statusActor, sn).catch(console.error)
+    else if (body.status === 'received' && s.discordOnReceived) discordReceived(wh, r, statusActor, sn).catch(console.error)
   }).catch(console.error)
 
   return c.json(r)

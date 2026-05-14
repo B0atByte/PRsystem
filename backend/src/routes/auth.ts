@@ -9,6 +9,7 @@ import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { parseBody } from '../lib/validate.js'
 import { getClientIp, isLocked, recordFailure, recordSuccess, unlockIp, getLockedIps } from '../lib/rateLimiter.js'
 import { addToBlacklist } from '../lib/tokenBlacklist.js'
+import { discordLogin, discordLogout } from '../lib/discord.js'
 
 const auth = new Hono()
 
@@ -55,9 +56,17 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }, 401)
   }
 
-  // itsupport ไม่ clear lock — เพื่อให้เห็น IP ที่ถูกล็อกอยู่และปลดล็อกเองได้
   if (!isItsupport) recordSuccess(ip)
   const token = signToken({ id: user.id, role: user.role, name: user.name }, rememberMe)
+
+  // Discord login notification
+  prisma.settings.findUnique({ where: { id: 'singleton' }, select: { discordWebhook: true, discordSecurityWebhook: true, discordOnLogin: true, siteName: true } })
+    .then(s => {
+      const wh = s?.discordSecurityWebhook || s?.discordWebhook
+      if (wh && s?.discordOnLogin)
+        discordLogin(wh, { name: user.name, role: user.role, username: user.username }, ip, s.siteName).catch(console.error)
+    }).catch(console.error)
+
   return c.json({
     token,
     user: {
@@ -71,11 +80,26 @@ auth.post('/login', async (c) => {
 })
 
 // POST /api/auth/logout — เพิ่ม token เข้า blacklist ทันที
-auth.post('/logout', authMiddleware, (c) => {
+auth.post('/logout', authMiddleware, async (c) => {
   const token = c.req.header('Authorization')?.slice(7) || ''
   const payload = c.get('user') as any
   const exp = payload?.exp || Math.floor(Date.now() / 1000) + 8 * 3600
   if (token) addToBlacklist(token, exp)
+
+  // Discord logout notification
+  if (payload?.id) {
+    prisma.user.findUnique({ where: { id: payload.id }, select: { name: true, role: true, username: true } })
+      .then(u => {
+        if (!u) return
+        return prisma.settings.findUnique({ where: { id: 'singleton' }, select: { discordWebhook: true, discordSecurityWebhook: true, discordOnLogout: true, siteName: true } })
+          .then(s => {
+            const wh = s?.discordSecurityWebhook || s?.discordWebhook
+            if (wh && s?.discordOnLogout)
+              discordLogout(wh, u, s.siteName).catch(console.error)
+          })
+      }).catch(console.error)
+  }
+
   return c.json({ ok: true })
 })
 

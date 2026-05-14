@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs'
 import { prisma } from '../lib/prisma.js'
 import { authMiddleware, requireRole } from '../middleware/auth.js'
 import { parseBody } from '../lib/validate.js'
+import { discordPasswordReset } from '../lib/discord.js'
 
 const users = new Hono()
 users.use('*', authMiddleware)
@@ -77,7 +78,7 @@ users.put('/:id', async (c) => {
     username: body.username,
     email: body.email,
     role: body.role,
-    active: body.active ?? true,
+    ...(body.active !== undefined ? { active: body.active } : {}),
   }
   if (body.password) data.password = await bcrypt.hash(body.password, 10)
 
@@ -95,16 +96,36 @@ users.put('/:id', async (c) => {
 })
 
 users.delete('/:id', async (c) => {
+  const caller = c.get('user')
   const { id } = c.req.param()
+  if (id === caller.id) return c.json({ error: 'ไม่สามารถลบบัญชีของตัวเองได้' }, 400)
+  const target = await prisma.user.findUnique({ where: { id }, select: { role: true } })
+  if (!target) return c.json({ error: 'ไม่พบผู้ใช้' }, 404)
+  if (target.role === 'itsupport') {
+    const count = await prisma.user.count({ where: { role: 'itsupport', active: true } })
+    if (count <= 1) return c.json({ error: 'ไม่สามารถลบ IT Support คนสุดท้ายได้' }, 400)
+  }
   await prisma.user.delete({ where: { id } })
   return c.json({ ok: true })
 })
 
 users.post('/:id/reset-password', async (c) => {
+  const admin = c.get('user')
   const { id } = c.req.param()
-  const hashed = await bcrypt.hash('1234', 10)
-  await prisma.user.update({ where: { id }, data: { password: hashed } })
-  return c.json({ ok: true })
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  const newPass = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+  const hashed = await bcrypt.hash(newPass, 10)
+  const target = await prisma.user.update({ where: { id }, data: { password: hashed }, select: { name: true, username: true } })
+
+  // Discord notification
+  prisma.settings.findUnique({ where: { id: 'singleton' }, select: { discordWebhook: true, discordSecurityWebhook: true, discordOnPasswordReset: true, siteName: true } })
+    .then(s => {
+      const wh = s?.discordSecurityWebhook || s?.discordWebhook
+      if (wh && s?.discordOnPasswordReset)
+        discordPasswordReset(wh, target, { name: admin.name }, s.siteName).catch(console.error)
+    }).catch(console.error)
+
+  return c.json({ ok: true, newPassword: newPass })
 })
 
 export default users

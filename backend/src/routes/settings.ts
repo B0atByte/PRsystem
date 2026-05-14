@@ -20,16 +20,23 @@ const updateSettingsSchema = z.object({
   discordOnTransferred: z.boolean().optional(),
   discordOnRejected: z.boolean().optional(),
   discordOnReceived: z.boolean().optional(),
+  discordOnLogin: z.boolean().optional(),
+  discordOnLogout: z.boolean().optional(),
+  discordOnPasswordReset: z.boolean().optional(),
+  discordSecurityWebhook: z.string().max(500).nullable().optional(),
+  discordSecurityChannelId: z.string().max(30).nullable().optional(),
   discordReportEnabled: z.boolean().optional(),
   discordReportTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   discordBotToken: z.string().max(100).nullable().optional(),
   discordChannelId: z.string().max(30).nullable().optional(),
+  discordRolePerms: z.string().nullable().optional(),
   smtpHost: z.string().max(200).nullable().optional(),
   smtpPort: z.number().int().min(1).max(65535).nullable().optional(),
   smtpSecure: z.boolean().optional(),
   smtpUser: z.string().max(200).nullable().optional(),
   smtpPass: z.string().max(500).nullable().optional(),
   smtpFrom: z.string().max(300).nullable().optional(),
+  branches: z.array(z.string().max(100)).optional(),
 })
 
 const ensureSettings = () =>
@@ -47,13 +54,17 @@ router.get('/', async (c) => {
     siteName: s.siteName,
     siteSubtitle: s.siteSubtitle,
     logoUrl: s.logoUrl,
+    branches: JSON.parse(s.branches || '["HQ"]'),
   })
 })
 
 // GET /api/settings/secure — itsupport เท่านั้น (ข้อมูลครบรวม webhook/token)
 router.get('/secure', authMiddleware, requireRole('itsupport'), async (c) => {
   const s = await ensureSettings()
-  return c.json(s)
+  return c.json({
+    ...s,
+    branches: JSON.parse(s.branches || '["HQ"]'),
+  })
 })
 
 // PUT /api/settings — itsupport เท่านั้น
@@ -85,22 +96,32 @@ router.put('/', authMiddleware, requireRole('itsupport'), async (c) => {
       discordOnTransferred: body.discordOnTransferred ?? undefined,
       discordOnRejected: body.discordOnRejected ?? undefined,
       discordOnReceived: body.discordOnReceived ?? undefined,
+      discordOnLogin: body.discordOnLogin ?? undefined,
+      discordOnLogout: body.discordOnLogout ?? undefined,
+      discordOnPasswordReset: body.discordOnPasswordReset ?? undefined,
+      discordSecurityWebhook: body.discordSecurityWebhook ?? undefined,
+      discordSecurityChannelId: body.discordSecurityChannelId ?? undefined,
       discordReportEnabled: body.discordReportEnabled ?? undefined,
       discordReportTime: body.discordReportTime ?? undefined,
       discordBotToken: body.discordBotToken ?? undefined,
       discordChannelId: body.discordChannelId ?? undefined,
+      discordRolePerms: body.discordRolePerms ?? undefined,
       smtpHost: body.smtpHost ?? undefined,
       smtpPort: body.smtpPort ?? undefined,
       smtpSecure: body.smtpSecure ?? undefined,
       smtpUser: body.smtpUser ?? undefined,
       smtpPass: body.smtpPass ?? undefined,
       smtpFrom: body.smtpFrom ?? undefined,
+      branches: body.branches ? JSON.stringify(body.branches) : undefined,
       updatedBy: user.id,
       updatedByName: user.name,
     },
   })
 
-  return c.json(s)
+  return c.json({
+    ...s,
+    branches: JSON.parse(s.branches || '["HQ"]'),
+  })
 })
 
 // POST /api/settings/test-email — itsupport ทดสอบส่งอีเมล
